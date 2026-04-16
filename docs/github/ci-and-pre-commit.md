@@ -94,10 +94,11 @@
 
 建议开发时按下面顺序自检：
 
-1. `py -3.13 -m venv .venv`
-2. `.\.venv\Scripts\python.exe -m pip install -e ".[dev]"`
-3. `.\.venv\Scripts\pre-commit.exe run --all-files`
-4. `.\.venv\Scripts\python.exe -m agentsroles smoke-tests`
+1. `py -3.13 -m venv .local\venv`
+2. `set PRE_COMMIT_HOME=%CD%\.local\pre-commit-cache` 或在 PowerShell 中设置 `$env:PRE_COMMIT_HOME`
+3. `.\.local\venv\Scripts\python.exe -m pip install -e ".[dev]"`
+4. `.\.local\venv\Scripts\pre-commit.exe run --all-files`
+5. `.\.local\venv\Scripts\python.exe -m agentsroles smoke-tests`
 5. `cd frontend/workspace && npm run build`
 
 ## Recommended Required Checks

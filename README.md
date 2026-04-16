@@ -57,30 +57,46 @@
 
 ## 当前推荐入口
 
-### 0. 安装后端开发依赖
+### 0. 快速上手
 
 ```powershell
 cd E:\大三下\need to learn\agentsRoles
-py -3.13 -m venv .venv
-$env:PIP_CACHE_DIR = "$PWD\\.pip-cache"
-& .\.venv\Scripts\python.exe -m pip install --upgrade pip
-& .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+py -3.13 -m venv .local\venv
+$env:PIP_CACHE_DIR = "$PWD\\.local\\pip-cache"
+& .\.local\venv\Scripts\python.exe -m pip install --upgrade pip
+& .\.local\venv\Scripts\python.exe -m pip install -e ".[dev]"
 ```
 
-### 1. 启动 Web 控制台
+### 1. 安装提交前钩子
+
+当前仓库已经提供 `.pre-commit-config.yaml`，但**默认不会在 `git commit` 时自动运行**。
+如果你希望每次提交前自动执行格式和基础检查，请手动安装 hook。
+
+为了避免把 hook 缓存重复下载到用户目录，当前项目建议把本地开发缓存统一放到仓库根目录下的 `.local/` 中。
+当前约定：
+
+1. `.local/venv/`
+2. `.local/pip-cache/`
+3. `.local/pre-commit-cache/`
+
+安装 hook：
 
 ```powershell
 cd E:\大三下\need to learn\agentsRoles
-& .\.venv\Scripts\python.exe -m agentsroles web
+$env:PRE_COMMIT_HOME = "$PWD\\.local\\pre-commit-cache"
+& .\.local\venv\Scripts\pre-commit.exe install
 ```
 
-浏览器打开：
+安装后，`git commit` 会自动触发当前配置的 `pre-commit` 检查。
 
-```text
-http://127.0.0.1:8765
+如果你想提前把 hook 环境准备好，也可以先执行一次：
+
+```powershell
+$env:PRE_COMMIT_HOME = "$PWD\\.local\\pre-commit-cache"
+& .\.local\venv\Scripts\pre-commit.exe run --all-files
 ```
 
-### 2. 配置 LLM
+### 2. 配置环境变量
 
 在项目根目录放置 `.env`，参考：
 
@@ -91,7 +107,29 @@ http://127.0.0.1:8765
 1. 教育域 agent 与教育项目助手默认优先使用 `DeepSeek`
 2. 若 `DeepSeek` 不可用，再尝试 `OpenAI`
 
-### 3. 推荐自测顺序
+### 3. 启动 Web 控制台
+
+```powershell
+cd E:\大三下\need to learn\agentsRoles
+& .\.local\venv\Scripts\python.exe -m agentsroles web
+```
+
+浏览器打开：
+
+```text
+http://127.0.0.1:8765
+```
+
+### 4. 其他常用运行命令
+
+```powershell
+& .\.local\venv\Scripts\python.exe -m agentsroles backend
+& .\.local\venv\Scripts\python.exe -m agentsroles web
+& .\.local\venv\Scripts\python.exe -m agentsroles frontend
+& .\.local\venv\Scripts\python.exe -m agentsroles smoke-tests
+```
+
+### 5. 推荐自测顺序
 
 1. 先看页面右上角的 LLM 配置状态
 2. 先运行 `education.diagnostic_plan`
@@ -99,14 +137,15 @@ http://127.0.0.1:8765
 4. 再运行 `education.remediation_loop`
 5. 最后运行 `education.eval_suite.smoke`
 
-### 4. 常用工程命令
+### 6. 提交前检查
 
 ```powershell
-& .\.venv\Scripts\python.exe -m agentsroles backend
-& .\.venv\Scripts\python.exe -m agentsroles web
-& .\.venv\Scripts\python.exe -m agentsroles frontend
-& .\.venv\Scripts\python.exe -m agentsroles smoke-tests
-& .\.venv\Scripts\pre-commit.exe run --all-files
+cd E:\大三下\need to learn\agentsRoles
+$env:PRE_COMMIT_HOME = "$PWD\\.local\\pre-commit-cache"
+& .\.local\venv\Scripts\pre-commit.exe run --all-files
+& .\.local\venv\Scripts\python.exe -m agentsroles smoke-tests
+cd .\frontend\workspace
+npm run build
 ```
 
 ## 代码结构摘要
