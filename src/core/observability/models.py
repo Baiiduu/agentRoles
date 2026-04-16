@@ -124,4 +124,3 @@ def policy_decision_to_timeline_entry(decision: PolicyDecisionRecord) -> Timelin
             "policy_name": decision.policy_name,
         },
     )
-

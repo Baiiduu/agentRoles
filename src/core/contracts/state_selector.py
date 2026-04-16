@@ -18,4 +18,3 @@ class StateSelector(Protocol):
     def terminal_condition_met(
         self, snapshot: ReducedSnapshot, workflow: CompiledWorkflow
     ) -> bool: ...
-

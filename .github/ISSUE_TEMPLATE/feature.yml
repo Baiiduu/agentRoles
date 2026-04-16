@@ -44,7 +44,7 @@ body:
       placeholder: |
         包含：
         - ...
-        
+
         不包含：
         - ...
     validations:

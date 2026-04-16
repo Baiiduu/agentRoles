@@ -219,4 +219,3 @@ class AgentRegistryTestCase(unittest.TestCase):
             split_agent_ref("teacher_planner:1.0.0"),
             ("teacher_planner", "1.0.0"),
         )
-

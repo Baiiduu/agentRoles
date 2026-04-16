@@ -122,4 +122,3 @@ class EvaluationSuiteResult:
     @property
     def error_cases(self) -> int:
         return sum(1 for result in self.case_results if result.status == EvaluationStatus.ERROR)
-

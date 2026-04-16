@@ -131,4 +131,3 @@ def _lookup_path(payload: JsonMap, field_path: str) -> object:
             return None
         current = current[segment]
     return current
-

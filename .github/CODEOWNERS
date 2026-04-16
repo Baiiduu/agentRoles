@@ -1,46 +1,37 @@
-# Replace the placeholder teams below with your real GitHub org teams or usernames
-# before enabling "Require review from Code Owners".
-#
-# Suggested team mapping:
-# - @your-org/platform-reviewers
-# - @your-org/frontend-reviewers
-# - @your-org/domain-reviewers
-# - @your-org/qa-reviewers
-# - @your-org/docs-reviewers
-#
-# Example:
-# /src/core/ @your-org/platform-reviewers
+# Current default owner uses the repository maintainer account.
+# If you later create GitHub teams, replace these entries with real team refs
+# such as @org/team-name before enabling stricter review routing.
 
 # Global fallback owner
-* @your-org/platform-reviewers
+* @Baiiduu
 
 # Collaboration and governance
-/.github/ @your-org/platform-reviewers @your-org/docs-reviewers
-/docs/ @your-org/docs-reviewers @your-org/platform-reviewers
+/.github/ @Baiiduu
+/docs/ @Baiiduu
 
 # Backend architecture layers
-/src/core/ @your-org/platform-reviewers
-/src/application/ @your-org/platform-reviewers
-/src/infrastructure/ @your-org/platform-reviewers
-/src/interfaces/ @your-org/platform-reviewers
+/src/core/ @Baiiduu
+/src/application/ @Baiiduu
+/src/infrastructure/ @Baiiduu
+/src/interfaces/ @Baiiduu
 
 # Domain implementations
-/src/domain_packs/ @your-org/domain-reviewers @your-org/platform-reviewers
+/src/domain_packs/ @Baiiduu
 
 # Frontend workspace
-/frontend/workspace/src/components/ @your-org/frontend-reviewers
-/frontend/workspace/src/pages/ @your-org/frontend-reviewers
-/frontend/workspace/src/services/ @your-org/frontend-reviewers @your-org/platform-reviewers
-/frontend/workspace/src/types/ @your-org/frontend-reviewers @your-org/platform-reviewers
-/frontend/workspace/src/utils/ @your-org/frontend-reviewers @your-org/platform-reviewers
-/frontend/workspace/src/styles/ @your-org/frontend-reviewers
-/frontend/workspace/ @your-org/frontend-reviewers
+/frontend/workspace/src/components/ @Baiiduu
+/frontend/workspace/src/pages/ @Baiiduu
+/frontend/workspace/src/services/ @Baiiduu
+/frontend/workspace/src/types/ @Baiiduu
+/frontend/workspace/src/utils/ @Baiiduu
+/frontend/workspace/src/styles/ @Baiiduu
+/frontend/workspace/ @Baiiduu
 
 # Test and quality gates
-/tests/ @your-org/qa-reviewers @your-org/platform-reviewers
+/tests/ @Baiiduu
 
 # Runtime scripts and developer entrypoints
-/run_backend.py @your-org/platform-reviewers
-/run_frontend.py @your-org/frontend-reviewers @your-org/platform-reviewers
-/run_web_console.py @your-org/frontend-reviewers @your-org/platform-reviewers
-/run_demo_mcp_server.py @your-org/platform-reviewers
+/run_backend.py @Baiiduu
+/run_frontend.py @Baiiduu
+/run_web_console.py @Baiiduu
+/run_demo_mcp_server.py @Baiiduu

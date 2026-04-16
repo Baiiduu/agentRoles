@@ -59,4 +59,3 @@ class Runtime(Protocol):
         after_sequence_no: int | None = None,
         limit: int | None = None,
     ) -> Iterable[RuntimeEvent]: ...
-
