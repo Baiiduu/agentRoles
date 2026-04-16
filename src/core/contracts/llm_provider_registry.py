@@ -1,0 +1,19 @@
+from __future__ import annotations
+
+from typing import Protocol
+
+from core.llm.models import LLMModelProfile, LLMProviderConfig
+
+
+class LLMProviderRegistry(Protocol):
+    def register_provider(self, config: LLMProviderConfig) -> None: ...
+
+    def register_profile(self, profile: LLMModelProfile) -> None: ...
+
+    def get_provider(self, provider_ref: str) -> LLMProviderConfig | None: ...
+
+    def get_profile(self, profile_ref: str) -> LLMModelProfile | None: ...
+
+    def list_providers(self) -> list[LLMProviderConfig]: ...
+
+    def list_profiles(self) -> list[LLMModelProfile]: ...

@@ -1,0 +1,63 @@
+name: Task
+description: 记录工程任务、重构、文档、流程治理等工作项
+title: "[Task]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        用于跟踪中小型实施任务，尤其适合流程治理、文档、测试补齐、代码整理。
+  - type: input
+    id: summary
+    attributes:
+      label: 任务摘要
+      description: 用一句话概括要完成什么
+      placeholder: 例如：补充 agentsRoles 的 CODEOWNERS 和 PR review 规则
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: 背景
+      description: 为什么现在要做这件事？
+      placeholder: |
+        例如：
+        - 仓库准备进入多人协作
+        - 当前缺少统一 review 入口
+    validations:
+      required: true
+  - type: textarea
+    id: deliverables
+    attributes:
+      label: 交付物
+      description: 这项任务预期产出哪些具体成果？
+      placeholder: |
+        例如：
+        - 新增配置文件
+        - 补充文档
+        - 调整 GitHub 仓库设置说明
+    validations:
+      required: true
+  - type: textarea
+    id: implementation
+    attributes:
+      label: 实施要点
+      description: 记录分解步骤、关键注意事项或影响模块
+      placeholder: |
+        例如：
+        1. 新增 .github 模板
+        2. 写入 review 说明
+        3. 与 CI 规则对齐
+    validations:
+      required: false
+  - type: textarea
+    id: done
+    attributes:
+      label: 完成标准
+      description: 什么情况下可以关闭这个任务？
+      placeholder: |
+        例如：
+        - 文件已落库
+        - 团队约定已写清楚
+        - 能被后续流程直接复用
+    validations:
+      required: true

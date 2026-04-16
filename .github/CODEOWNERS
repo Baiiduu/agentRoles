@@ -1,0 +1,46 @@
+# Replace the placeholder teams below with your real GitHub org teams or usernames
+# before enabling "Require review from Code Owners".
+#
+# Suggested team mapping:
+# - @your-org/platform-reviewers
+# - @your-org/frontend-reviewers
+# - @your-org/domain-reviewers
+# - @your-org/qa-reviewers
+# - @your-org/docs-reviewers
+#
+# Example:
+# /src/core/ @your-org/platform-reviewers
+
+# Global fallback owner
+* @your-org/platform-reviewers
+
+# Collaboration and governance
+/.github/ @your-org/platform-reviewers @your-org/docs-reviewers
+/docs/ @your-org/docs-reviewers @your-org/platform-reviewers
+
+# Backend architecture layers
+/src/core/ @your-org/platform-reviewers
+/src/application/ @your-org/platform-reviewers
+/src/infrastructure/ @your-org/platform-reviewers
+/src/interfaces/ @your-org/platform-reviewers
+
+# Domain implementations
+/src/domain_packs/ @your-org/domain-reviewers @your-org/platform-reviewers
+
+# Frontend workspace
+/frontend/workspace/src/components/ @your-org/frontend-reviewers
+/frontend/workspace/src/pages/ @your-org/frontend-reviewers
+/frontend/workspace/src/services/ @your-org/frontend-reviewers @your-org/platform-reviewers
+/frontend/workspace/src/types/ @your-org/frontend-reviewers @your-org/platform-reviewers
+/frontend/workspace/src/utils/ @your-org/frontend-reviewers @your-org/platform-reviewers
+/frontend/workspace/src/styles/ @your-org/frontend-reviewers
+/frontend/workspace/ @your-org/frontend-reviewers
+
+# Test and quality gates
+/tests/ @your-org/qa-reviewers @your-org/platform-reviewers
+
+# Runtime scripts and developer entrypoints
+/run_backend.py @your-org/platform-reviewers
+/run_frontend.py @your-org/frontend-reviewers @your-org/platform-reviewers
+/run_web_console.py @your-org/frontend-reviewers @your-org/platform-reviewers
+/run_demo_mcp_server.py @your-org/platform-reviewers

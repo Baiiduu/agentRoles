@@ -1,0 +1,99 @@
+name: Bug Report
+description: 记录缺陷、异常行为或回归问题
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请尽量提供可复现信息。越具体，越容易被快速定位和修复。
+  - type: input
+    id: summary
+    attributes:
+      label: 问题摘要
+      description: 用一句话描述问题是什么
+      placeholder: 例如：Web Console 在切换 domain pack 后页面空白
+    validations:
+      required: true
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景与上下文
+      description: 这个问题是在什么场景下出现的？涉及哪个模块？
+      placeholder: |
+        例如：
+        - 模块：Agent Playground / Web Console / LLM Adapter
+        - 场景：本地运行，进入 agent capability 页面后触发
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 尽量写成编号步骤
+      placeholder: |
+        1. 执行 ...
+        2. 打开 ...
+        3. 点击 ...
+        4. 观察到 ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+      placeholder: 页面应正常渲染并展示 capability 列表
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+      placeholder: 页面白屏，浏览器控制台报错 ...
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: 影响范围
+      description: 哪些用户、流程、模块会受影响？
+      placeholder: |
+        例如：
+        - 仅开发环境
+        - education domain pack
+        - 所有 Web Console 用户
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 日志、截图或补充证据
+      description: 可粘贴错误日志、截图说明、相关 commit / PR 链接
+      placeholder: |
+        - 错误堆栈：
+        - 截图：
+        - 相关链接：
+    validations:
+      required: false
+  - type: dropdown
+    id: severity
+    attributes:
+      label: 严重程度
+      options:
+        - P0 - 阻断主流程 / 无法使用
+        - P1 - 关键能力异常但有临时绕过
+        - P2 - 一般缺陷 / 局部功能异常
+        - P3 - 轻微问题 / 体验问题
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 修复完成标准
+      description: 这条 issue 关闭前，至少应满足什么条件？
+      placeholder: |
+        例如：
+        - 问题可稳定复现并被修复
+        - 补充对应测试
+        - 无新回归
+    validations:
+      required: true
