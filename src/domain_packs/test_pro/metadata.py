@@ -17,15 +17,15 @@ TEST_PRO_DOMAIN_METADATA = TestProDomainMetadata(
     domain_name="test_pro",
     pack_version="0.1.0",
     summary=(
-        "Minimal test-focused domain pack for prompt tuning, response shaping, "
-        "and iterative agent behavior experiments."
+        "Single-agent coding assistant domain pack for repository understanding, "
+        "targeted code modification, and developer-facing verification in local workspaces."
     ),
     owner="agentsRoles",
     capability_tags=[
-        "testing",
-        "prompt-lab",
-        "agent-tuning",
-        "sandbox-chat",
+        "coding-agent",
+        "repository-understanding",
+        "code-editing",
+        "verification-guidance",
     ],
-    maturity="prototype",
+    maturity="beta",
 )

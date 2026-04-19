@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from copy import deepcopy
+from datetime import UTC, datetime
+from threading import Lock, Thread
 from typing import Any
+from uuid import uuid4
 
 from core.contracts import RuntimeServices
 from core.tools import ToolTransportKind
@@ -25,7 +28,7 @@ from domain_packs.operations import build_operations_function_tool_adapter
 from application.casework.case_workspace_service import CaseWorkspaceFacade
 from application.resource_manager.agent_resource_manager_service import AgentResourceManagerFacade
 from application.runtime.agent_runtime_context_service import AgentRuntimeContextFacade
-from infrastructure.mcp.mcp_runtime_service import MCPRuntimeFactory
+from infrastructure.mcp.mcp_runtime_service import MCPRuntimeFactory, build_mcp_server_catalog
 from infrastructure.persistence import (
     SQLiteAgentChatHistoryRepository,
     SQLiteAgentChatSessionRepository,
@@ -43,6 +46,8 @@ class AgentPlaygroundFacade:
         settings = get_persistence_settings()
         self._chat_history = SQLiteAgentChatHistoryRepository(settings.sqlite_path)
         self._chat_sessions = SQLiteAgentChatSessionRepository(settings.sqlite_path)
+        self._session_tasks: dict[str, dict[str, object]] = {}
+        self._session_task_lock = Lock()
 
     def get_bootstrap(self) -> dict[str, object]:
         descriptors = self._runtime_context.runtime_descriptors()
@@ -97,6 +102,65 @@ class AgentPlaygroundFacade:
         return payload
 
     def send_message(self, payload: dict[str, object]) -> dict[str, object]:
+        request, session = self._build_agent_session_request(payload)
+        result = self._run_agent_session_request(payload=payload, request=request, session=session)
+        return result
+
+    def start_message_task(self, payload: dict[str, object]) -> dict[str, object]:
+        request, session = self._build_agent_session_request(payload)
+        now = self._utcnow()
+        task_id = f"agent_task_{uuid4().hex}"
+        snapshot = {
+            "task_id": task_id,
+            "agent_id": request.agent_id,
+            "session_id": request.session_id,
+            "case_id": request.case_id,
+            "message": request.message,
+            "status": "queued",
+            "stage": "queued",
+            "current_phase": "understand",
+            "current_activity": "Queued and waiting to start.",
+            "created_at": now,
+            "updated_at": now,
+            "events": [],
+            "event_count": 0,
+            "result": None,
+            "error": None,
+        }
+        with self._session_task_lock:
+            self._session_tasks[task_id] = snapshot
+        self._append_session_task_event(
+            task_id,
+            kind="task",
+            stage="queued",
+            status="queued",
+            summary="Task queued.",
+            current_phase="understand",
+        )
+        worker = Thread(
+            target=self._run_message_task,
+            kwargs={
+                "task_id": task_id,
+                "payload": deepcopy(payload),
+                "request": request,
+                "session": session,
+            },
+            daemon=True,
+        )
+        worker.start()
+        return self.get_message_task(task_id)
+
+    def get_message_task(self, task_id: str) -> dict[str, object]:
+        with self._session_task_lock:
+            snapshot = deepcopy(self._session_tasks.get(task_id))
+        if snapshot is None:
+            raise KeyError(f"unknown task_id '{task_id}'")
+        return snapshot
+
+    def _build_agent_session_request(
+        self,
+        payload: dict[str, object],
+    ) -> tuple[AgentSessionRequest, object]:
         case_id = str(payload["case_id"]) if payload.get("case_id") is not None else None
         agent_id = str(payload.get("agent_id", ""))
         requested_session_id = str(payload.get("session_id", "")).strip()
@@ -110,11 +174,12 @@ class AgentPlaygroundFacade:
         if session.agent_id != agent_id:
             raise ValueError("session does not belong to the selected agent")
         user_ephemeral_context = dict(payload.get("ephemeral_context") or {})
-        derived_case_context = (
-            self._case_workspace.build_case_session_context(case_id)
-            if case_id
-            else {}
-        )
+        derived_case_context: dict[str, object] = {}
+        if case_id:
+            try:
+                derived_case_context = self._case_workspace.build_case_session_context(case_id)
+            except KeyError:
+                derived_case_context = {}
         request = AgentSessionRequest(
             agent_id=agent_id,
             case_id=case_id,
@@ -127,6 +192,15 @@ class AgentPlaygroundFacade:
             },
             persist_artifact=bool(payload.get("persist_artifact", False)),
         )
+        return request, session
+
+    def _run_agent_session_request(
+        self,
+        *,
+        payload: dict[str, object],
+        request: AgentSessionRequest,
+        session,
+    ) -> dict[str, object]:
         service = AgentSessionService(
             agent_descriptors=self._runtime_context.runtime_descriptors(),
             agent_implementations=get_registered_agent_implementations(),
@@ -157,6 +231,85 @@ class AgentPlaygroundFacade:
             "memory_events": result.memory_events,
             "writeback_status": asdict(result.writeback_status),
         }
+
+    def _run_message_task(
+        self,
+        *,
+        task_id: str,
+        payload: dict[str, object],
+        request: AgentSessionRequest,
+        session,
+    ) -> None:
+        try:
+            self._update_session_task(
+                task_id,
+                {
+                    "status": "running",
+                    "stage": "preparing",
+                    "current_phase": "understand",
+                    "current_activity": "Preparing conversation context and runtime services.",
+                },
+            )
+            self._append_session_task_event(
+                task_id,
+                kind="task",
+                stage="preparing",
+                status="running",
+                summary="Preparing conversation context.",
+                current_phase="understand",
+            )
+            request.ephemeral_context["_progress_callback"] = self._build_progress_callback(task_id)
+            response = self._run_agent_session_request(
+                payload=payload,
+                request=request,
+                session=session,
+            )
+            artifact_payload = (
+                response.get("artifact_preview", {}).get("payload", {})
+                if isinstance(response.get("artifact_preview"), dict)
+                else {}
+            )
+            current_phase = (
+                str(artifact_payload.get("current_phase", "")).strip() or "report"
+            )
+            self._append_session_task_event(
+                task_id,
+                kind="task",
+                stage="completed",
+                status="completed",
+                summary="Run completed.",
+                current_phase=current_phase,
+            )
+            self._update_session_task(
+                task_id,
+                {
+                    "status": "completed",
+                    "stage": "completed",
+                    "current_phase": current_phase,
+                    "current_activity": "Completed and ready for review.",
+                    "result": response,
+                    "error": None,
+                },
+            )
+        except Exception as exc:
+            self._append_session_task_event(
+                task_id,
+                kind="task",
+                stage="failed",
+                status="failed",
+                summary=str(exc),
+                current_phase="report",
+            )
+            self._update_session_task(
+                task_id,
+                {
+                    "status": "failed",
+                    "stage": "failed",
+                    "current_phase": "report",
+                    "current_activity": "Run failed.",
+                    "error": str(exc),
+                },
+            )
 
     def get_chat_history(
         self,
@@ -466,3 +619,81 @@ class AgentPlaygroundFacade:
             }
             for item in self._chat_history.list_messages(session_id=session_id, limit=limit)
         ]
+
+    def _build_progress_callback(self, task_id: str):
+        def _callback(event: dict[str, object]) -> None:
+            self._record_progress_event(task_id, event)
+
+        return _callback
+
+    def _record_progress_event(self, task_id: str, event: dict[str, object]) -> None:
+        stage = str(event.get("stage", "running")).strip() or "running"
+        status = str(event.get("status", "running")).strip() or "running"
+        current_phase = str(event.get("current_phase", "understand")).strip() or "understand"
+        summary = str(event.get("summary", "")).strip() or "Agent is working."
+        current_activity = str(event.get("current_activity", "")).strip() or summary
+        self._append_session_task_event(
+            task_id,
+            kind=str(event.get("kind", "progress")).strip() or "progress",
+            stage=stage,
+            status=status,
+            summary=summary,
+            current_phase=current_phase,
+            tool_ref=event.get("tool_ref"),
+            detail=event.get("detail"),
+        )
+        self._update_session_task(
+            task_id,
+            {
+                "status": status,
+                "stage": stage,
+                "current_phase": current_phase,
+                "current_activity": current_activity,
+            },
+        )
+
+    def _append_session_task_event(
+        self,
+        task_id: str,
+        *,
+        kind: str,
+        stage: str,
+        status: str,
+        summary: str,
+        current_phase: str,
+        tool_ref: object | None = None,
+        detail: object | None = None,
+    ) -> None:
+        with self._session_task_lock:
+            snapshot = self._session_tasks.get(task_id)
+            if snapshot is None:
+                return
+            events = snapshot.setdefault("events", [])
+            sequence = len(events) + 1
+            event = {
+                "sequence": sequence,
+                "timestamp": self._utcnow(),
+                "kind": kind,
+                "stage": stage,
+                "status": status,
+                "summary": summary,
+                "current_phase": current_phase,
+            }
+            if isinstance(tool_ref, str) and tool_ref.strip():
+                event["tool_ref"] = tool_ref.strip()
+            if detail is not None:
+                event["detail"] = deepcopy(detail)
+            events.append(event)
+            snapshot["event_count"] = len(events)
+            snapshot["updated_at"] = self._utcnow()
+
+    def _update_session_task(self, task_id: str, patch: dict[str, object]) -> None:
+        with self._session_task_lock:
+            snapshot = self._session_tasks.get(task_id)
+            if snapshot is None:
+                return
+            snapshot.update(deepcopy(patch))
+            snapshot["updated_at"] = self._utcnow()
+
+    def _utcnow(self) -> str:
+        return datetime.now(UTC).isoformat()

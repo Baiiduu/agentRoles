@@ -22,13 +22,22 @@ CASE_DATA_FILE = PROJECT_ROOT / "runtime_data" / "education" / "cases.json"
 
 class InMemoryCaseWorkspaceStore:
     def __init__(self) -> None:
-        payload = json.loads(CASE_DATA_FILE.read_text(encoding="utf-8"))
+        payload = self._load_payload()
         cases = payload.get("cases", [])
         self._cases = {item["case_id"]: deepcopy(item) for item in cases}
         self._handoffs: dict[str, list[dict[str, Any]]] = {case_id: [] for case_id in self._cases}
         self._session_feed: dict[str, list[dict[str, Any]]] = {
             case_id: [] for case_id in self._cases
         }
+
+    def _load_payload(self) -> dict[str, Any]:
+        if not CASE_DATA_FILE.exists():
+            return {"cases": []}
+        try:
+            payload = json.loads(CASE_DATA_FILE.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {"cases": []}
+        return payload if isinstance(payload, dict) else {"cases": []}
 
     def list_cases(self) -> list[dict[str, Any]]:
         return [deepcopy(item) for item in self._cases.values()]

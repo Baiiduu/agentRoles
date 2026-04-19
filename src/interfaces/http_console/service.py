@@ -185,6 +185,12 @@ class ProjectConsoleService:
     def send_agent_playground_message(self, payload: dict[str, object]) -> dict[str, object]:
         return self._agent_playground.send_message(payload)
 
+    def start_agent_playground_message_task(self, payload: dict[str, object]) -> dict[str, object]:
+        return self._agent_playground.start_message_task(payload)
+
+    def get_agent_playground_message_task(self, task_id: str) -> dict[str, object]:
+        return self._agent_playground.get_message_task(task_id)
+
     def list_case_workspace_cases(self) -> dict[str, object]:
         return self._case_workspace.list_cases()
 

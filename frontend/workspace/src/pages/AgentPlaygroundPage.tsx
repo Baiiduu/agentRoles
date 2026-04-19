@@ -14,6 +14,7 @@ import type {
   AgentDescriptorDto,
   PersistedAgentChatMessage,
   AgentSessionResponseDto,
+  AgentSessionTaskDto,
 } from "../types/agentPlayground";
 
 const defaultForm: SessionFormState = {
@@ -42,6 +43,7 @@ export function AgentPlaygroundPage({
   const [chatHistory, setChatHistory] = useState<PersistedAgentChatMessage[]>([]);
   const [form, setForm] = useState<SessionFormState>(defaultForm);
   const [result, setResult] = useState<AgentSessionResponseDto | null>(null);
+  const [liveTask, setLiveTask] = useState<AgentSessionTaskDto | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -82,6 +84,7 @@ export function AgentPlaygroundPage({
         const nextSessionId = sessionBundle.active_session_id || sessionBundle.sessions?.[0]?.session_id || "";
         setCurrentSessionId(nextSessionId);
         setResult(null);
+        setLiveTask(null);
         return api.getAgentChatHistory(selectedAgentId, nextSessionId || undefined).catch(() => ({
           agent_id: selectedAgentId,
           session_id: nextSessionId || null,
@@ -99,6 +102,45 @@ export function AgentPlaygroundPage({
       active = false;
     };
   }, [selectedAgentId]);
+
+  useEffect(() => {
+    if (!liveTask || !["queued", "running"].includes(liveTask.status)) return;
+    let active = true;
+    const timer = window.setInterval(() => {
+      api.getAgentSessionTask(liveTask.task_id)
+        .then(async (task) => {
+          if (!active) return;
+          setLiveTask(task);
+          if (task.status === "completed" && task.result) {
+            setResult(task.result);
+            setCurrentSessionId(task.result.session.session_id);
+            const [sessionsBundle, history] = await Promise.all([
+              api.getAgentSessions(selectedAgentId),
+              api.getAgentChatHistory(selectedAgentId, task.result.session.session_id),
+            ]);
+            if (!active) return;
+            setChatSessions(sessionsBundle.sessions || []);
+            setChatHistory(history.messages || []);
+            setForm((current) => ({ ...current, message: "" }));
+            onSessionCommitted?.(task.case_id, task.result);
+            setSubmitting(false);
+          }
+          if (task.status === "failed") {
+            setSubmitting(false);
+            setError(task.error || "run failed");
+          }
+        })
+        .catch((err: Error) => {
+          if (!active) return;
+          setSubmitting(false);
+          setError(err.message);
+        });
+    }, 800);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [liveTask, onSessionCommitted, selectedAgentId]);
 
   useEffect(() => {
     if (!selectedAgentId || !currentSessionId) {
@@ -133,18 +175,12 @@ export function AgentPlaygroundPage({
         ephemeral_context: {},
         persist_artifact: form.persistArtifact,
       };
-      const response = await api.sendAgentSessionMessage(payload);
-      setResult(response);
-      setCurrentSessionId(response.session.session_id);
-      const sessionsBundle = await api.getAgentSessions(selectedAgentId);
-      setChatSessions(sessionsBundle.sessions || []);
-      const history = await api.getAgentChatHistory(selectedAgentId, response.session.session_id);
-      setChatHistory(history.messages || []);
-      setForm((current) => ({ ...current, message: "" }));
-      onSessionCommitted?.(payload.case_id, response);
+      setResult(null);
+      const task = await api.startAgentSessionTask(payload);
+      setLiveTask(task);
+      setCurrentSessionId(task.session_id || currentSessionId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "unknown error");
-    } finally {
       setSubmitting(false);
     }
   }
@@ -158,6 +194,7 @@ export function AgentPlaygroundPage({
       setCurrentSessionId(created.session.session_id);
       setChatHistory([]);
       setResult(null);
+      setLiveTask(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "unknown error");
     }
@@ -171,6 +208,7 @@ export function AgentPlaygroundPage({
       setChatSessions(payload.sessions || []);
       setCurrentSessionId(payload.active_session_id || "");
       setResult(null);
+      setLiveTask(null);
       if (payload.active_session_id) {
         const history = await api.getAgentChatHistory(selectedAgentId, payload.active_session_id);
         setChatHistory(history.messages || []);
@@ -205,7 +243,7 @@ export function AgentPlaygroundPage({
         />
 
         <main className="agent-playground-main">
-          <SessionResultPanel result={result} history={chatHistory} />
+          <SessionResultPanel result={result} history={chatHistory} liveTask={liveTask} />
           <ChatComposerBar
             message={form.message}
             onChangeMessage={(value) => setForm((current) => ({ ...current, message: value }))}

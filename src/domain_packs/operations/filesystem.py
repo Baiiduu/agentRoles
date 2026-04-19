@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ast
 from fnmatch import fnmatch
 from pathlib import Path
+import re
 
 from core.contracts import ExecutionContext, ToolInvocationResult
 
@@ -173,6 +175,114 @@ def read_file_segment_handler(
             "end_line": end_line,
             "total_line_count": total_line_count,
             "workspace_root": str(loaded.root),
+        },
+    )
+
+
+def symbol_outline_handler(
+    tool_input: dict[str, object],
+    context: ExecutionContext,
+) -> ToolInvocationResult:
+    loaded = _load_text_file(context, string_value(tool_input, "path"), operation_name="symbol_outline")
+    if loaded.error is not None:
+        return loaded.error
+    assert loaded.path is not None
+
+    symbols = _extract_symbols(loaded.path, loaded.content)
+    return ToolInvocationResult(
+        success=True,
+        output={
+            "path": loaded.display_path,
+            "language": _language_for_path(loaded.path),
+            "symbols": symbols,
+            "workspace_root": str(loaded.root),
+        },
+    )
+
+
+def symbol_search_handler(
+    tool_input: dict[str, object],
+    context: ExecutionContext,
+) -> ToolInvocationResult:
+    query = (string_value(tool_input, "query") or "").strip()
+    if not query:
+        return tool_error("FS_QUERY_REQUIRED", "symbol_search requires query")
+    resolved = resolve_path(context, string_value(tool_input, "path"))
+    if resolved.error is not None:
+        return resolved.error
+    root = resolved.path
+    if root is None or not root.exists():
+        return tool_error("FS_PATH_NOT_FOUND", "search root does not exist")
+    if not root.is_dir():
+        return tool_error("FS_NOT_A_DIRECTORY", "search root must be a directory")
+
+    limit = max(1, min(int_value(tool_input, "limit") or 20, 200))
+    matches = _symbol_matches(root=root, workspace_root=resolved.root, query=query, limit=limit)
+    return ToolInvocationResult(
+        success=True,
+        output={
+            "query": query,
+            "searched_root": display_path(root, resolved.root),
+            "matches": matches,
+            "workspace_root": str(resolved.root),
+        },
+    )
+
+
+def lookup_definition_handler(
+    tool_input: dict[str, object],
+    context: ExecutionContext,
+) -> ToolInvocationResult:
+    symbol = (string_value(tool_input, "symbol") or "").strip()
+    if not symbol:
+        return tool_error("FS_SYMBOL_REQUIRED", "lookup_definition requires symbol")
+    resolved = resolve_path(context, string_value(tool_input, "path"))
+    if resolved.error is not None:
+        return resolved.error
+    root = resolved.path
+    if root is None or not root.exists():
+        return tool_error("FS_PATH_NOT_FOUND", "search root does not exist")
+    if not root.is_dir():
+        return tool_error("FS_NOT_A_DIRECTORY", "search root must be a directory")
+
+    limit = max(1, min(int_value(tool_input, "limit") or 20, 200))
+    matches = _symbol_matches(root=root, workspace_root=resolved.root, query=symbol, limit=limit, exact=True)
+    return ToolInvocationResult(
+        success=True,
+        output={
+            "symbol": symbol,
+            "searched_root": display_path(root, resolved.root),
+            "matches": matches,
+            "workspace_root": str(resolved.root),
+        },
+    )
+
+
+def find_references_handler(
+    tool_input: dict[str, object],
+    context: ExecutionContext,
+) -> ToolInvocationResult:
+    symbol = (string_value(tool_input, "symbol") or "").strip()
+    if not symbol:
+        return tool_error("FS_SYMBOL_REQUIRED", "find_references requires symbol")
+    resolved = resolve_path(context, string_value(tool_input, "path"))
+    if resolved.error is not None:
+        return resolved.error
+    root = resolved.path
+    if root is None or not root.exists():
+        return tool_error("FS_PATH_NOT_FOUND", "search root does not exist")
+    if not root.is_dir():
+        return tool_error("FS_NOT_A_DIRECTORY", "search root must be a directory")
+
+    limit = max(1, min(int_value(tool_input, "limit") or 20, 200))
+    matches = _reference_matches(root=root, workspace_root=resolved.root, symbol=symbol, limit=limit)
+    return ToolInvocationResult(
+        success=True,
+        output={
+            "symbol": symbol,
+            "searched_root": display_path(root, resolved.root),
+            "matches": matches,
+            "workspace_root": str(resolved.root),
         },
     )
 
@@ -684,6 +794,19 @@ def _is_searchable_text_file(candidate: Path) -> bool:
     return candidate.is_file() and candidate.suffix.lower() in _TEXT_EXTENSIONS
 
 
+def _is_symbol_source_file(candidate: Path) -> bool:
+    return candidate.is_file() and candidate.suffix.lower() in {
+        ".py",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".java",
+        ".go",
+        ".rs",
+    }
+
+
 def _first_matching_line(
     lines: list[str],
     pattern: str,
@@ -696,3 +819,164 @@ def _first_matching_line(
         if needle in haystack:
             return index, line.strip()
     return None, ""
+
+
+def _language_for_path(path: Path) -> str:
+    suffix = path.suffix.lower()
+    return {
+        ".py": "python",
+        ".ts": "typescript",
+        ".tsx": "typescript",
+        ".js": "javascript",
+        ".jsx": "javascript",
+        ".java": "java",
+        ".go": "go",
+        ".rs": "rust",
+    }.get(suffix, suffix.lstrip(".") or "text")
+
+
+def _extract_symbols(path: Path, content: str) -> list[dict[str, object]]:
+    if path.suffix.lower() == ".py":
+        return _extract_python_symbols(content)
+    return _extract_regex_symbols(content)
+
+
+def _extract_python_symbols(content: str) -> list[dict[str, object]]:
+    symbols: list[dict[str, object]] = []
+    try:
+        module = ast.parse(content)
+    except SyntaxError:
+        return _extract_regex_symbols(content)
+    for node in module.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            args = [arg.arg for arg in node.args.args]
+            symbols.append(
+                {
+                    "name": node.name,
+                    "kind": "function",
+                    "line_number": node.lineno,
+                    "signature": f"{node.name}({', '.join(args)})",
+                }
+            )
+        elif isinstance(node, ast.ClassDef):
+            symbols.append(
+                {
+                    "name": node.name,
+                    "kind": "class",
+                    "line_number": node.lineno,
+                    "signature": f"class {node.name}",
+                }
+            )
+    return symbols
+
+
+def _extract_regex_symbols(content: str) -> list[dict[str, object]]:
+    patterns = [
+        (re.compile(r"^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)"), "class"),
+        (re.compile(r"^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)"), "function"),
+        (re.compile(r"^\s*(?:export\s+)?const\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:async\s*)?\("), "function"),
+        (re.compile(r"^\s*(?:export\s+)?const\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"), "constant"),
+        (re.compile(r"^\s*func\s+([A-Za-z_][A-Za-z0-9_]*)"), "function"),
+    ]
+    symbols: list[dict[str, object]] = []
+    for line_number, line in enumerate(content.splitlines(), start=1):
+        for pattern, kind in patterns:
+            match = pattern.search(line)
+            if match is None:
+                continue
+            name = match.group(1)
+            symbols.append(
+                {
+                    "name": name,
+                    "kind": kind,
+                    "line_number": line_number,
+                    "signature": line.strip(),
+                }
+            )
+            break
+    return symbols
+
+
+def _symbol_matches(
+    *,
+    root: Path,
+    workspace_root: Path,
+    query: str,
+    limit: int,
+    exact: bool = False,
+) -> list[dict[str, object]]:
+    lowered_query = query.lower()
+    matches: list[dict[str, object]] = []
+    for candidate in root.rglob("*"):
+        if len(matches) >= limit:
+            break
+        if not _is_symbol_source_file(candidate):
+            continue
+        try:
+            content = candidate.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        for symbol in _extract_symbols(candidate, content):
+            name = str(symbol.get("name", "")).strip()
+            if not name:
+                continue
+            if exact:
+                matched = name == query
+            else:
+                matched = lowered_query in name.lower()
+            if not matched:
+                continue
+            matches.append(
+                {
+                    "path": display_path(candidate, workspace_root),
+                    "name": name,
+                    "kind": symbol.get("kind"),
+                    "line_number": symbol.get("line_number"),
+                    "signature": symbol.get("signature"),
+                }
+            )
+            if len(matches) >= limit:
+                break
+    return matches
+
+
+def _reference_matches(
+    *,
+    root: Path,
+    workspace_root: Path,
+    symbol: str,
+    limit: int,
+) -> list[dict[str, object]]:
+    matches: list[dict[str, object]] = []
+    regex = re.compile(rf"\b{re.escape(symbol)}\b")
+    definition_regexes = [
+        re.compile(rf"^\s*(?:async\s+)?def\s+{re.escape(symbol)}\b"),
+        re.compile(rf"^\s*class\s+{re.escape(symbol)}\b"),
+        re.compile(rf"^\s*(?:export\s+)?(?:async\s+)?function\s+{re.escape(symbol)}\b"),
+        re.compile(rf"^\s*(?:export\s+)?const\s+{re.escape(symbol)}\b"),
+        re.compile(rf"^\s*func\s+{re.escape(symbol)}\b"),
+    ]
+    for candidate in root.rglob("*"):
+        if len(matches) >= limit:
+            break
+        if not _is_symbol_source_file(candidate):
+            continue
+        try:
+            lines = candidate.read_text(encoding="utf-8").splitlines()
+        except (UnicodeDecodeError, OSError):
+            continue
+        for line_number, line in enumerate(lines, start=1):
+            if regex.search(line) is None:
+                continue
+            match_kind = "definition" if any(pattern.search(line) for pattern in definition_regexes) else "reference"
+            matches.append(
+                {
+                    "path": display_path(candidate, workspace_root),
+                    "line_number": line_number,
+                    "preview": line.strip(),
+                    "match_kind": match_kind,
+                }
+            )
+            if len(matches) >= limit:
+                break
+    return matches

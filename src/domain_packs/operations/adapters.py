@@ -7,14 +7,18 @@ from .filesystem import (
     apply_patch_handler,
     delete_file_handler,
     find_in_file_handler,
+    find_references_handler,
     list_dir_handler,
     list_files_handler,
+    lookup_definition_handler,
     make_dir_handler,
     move_file_handler,
     read_file_handler,
     read_file_segment_handler,
     ripgrep_search_handler,
     search_files_handler,
+    symbol_outline_handler,
+    symbol_search_handler,
     write_file_handler,
 )
 from .git_tools import git_diff_handler, git_status_handler
@@ -32,6 +36,10 @@ def register_operation_tool_handlers(adapter: FunctionToolAdapter) -> None:
     adapter.register_handler(OPERATION_TOOL_REFS["list_files"], list_files_handler)
     adapter.register_handler(OPERATION_TOOL_REFS["read_file"], read_file_handler)
     adapter.register_handler(OPERATION_TOOL_REFS["read_file_segment"], read_file_segment_handler)
+    adapter.register_handler(OPERATION_TOOL_REFS["symbol_outline"], symbol_outline_handler)
+    adapter.register_handler(OPERATION_TOOL_REFS["symbol_search"], symbol_search_handler)
+    adapter.register_handler(OPERATION_TOOL_REFS["lookup_definition"], lookup_definition_handler)
+    adapter.register_handler(OPERATION_TOOL_REFS["find_references"], find_references_handler)
     adapter.register_handler(OPERATION_TOOL_REFS["find_in_file"], find_in_file_handler)
     adapter.register_handler(OPERATION_TOOL_REFS["search_files"], search_files_handler)
     adapter.register_handler(OPERATION_TOOL_REFS["ripgrep_search"], ripgrep_search_handler)

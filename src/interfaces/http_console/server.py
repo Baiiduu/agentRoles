@@ -43,6 +43,13 @@ class _ProjectApiMixin:
         if parsed.path == "/api/agent-playground/bootstrap":
             self._send_json(self.service.get_agent_playground_bootstrap())
             return True
+        if parsed.path.startswith("/api/agent-session-tasks/"):
+            task_id = parsed.path.removeprefix("/api/agent-session-tasks/").strip("/")
+            if not task_id:
+                self._send_error_json(HTTPStatus.BAD_REQUEST, "task_id is required")
+                return True
+            self._send_json(self.service.get_agent_playground_message_task(task_id))
+            return True
         if parsed.path == "/api/agent-configs":
             self._send_json(self.service.list_agent_configs())
             return True
@@ -124,6 +131,10 @@ class _ProjectApiMixin:
                 return True
             if parsed.path == "/api/agent-sessions/message":
                 result = self.service.send_agent_playground_message(payload)
+                self._send_json(result)
+                return True
+            if parsed.path == "/api/agent-session-tasks":
+                result = self.service.start_agent_playground_message_task(payload)
                 self._send_json(result)
                 return True
             if (
