@@ -165,3 +165,33 @@ export interface AgentSessionResponseDto {
     message: string | null;
   };
 }
+
+export interface AgentSessionTaskEventDto {
+  sequence: number;
+  timestamp: string;
+  kind: string;
+  stage: string;
+  status: string;
+  summary: string;
+  current_phase: string;
+  tool_ref?: string;
+  detail?: Record<string, unknown>;
+}
+
+export interface AgentSessionTaskDto {
+  task_id: string;
+  agent_id: string;
+  session_id: string | null;
+  case_id: string | null;
+  message: string;
+  status: string;
+  stage: string;
+  current_phase: string;
+  current_activity: string;
+  created_at: string;
+  updated_at: string;
+  event_count: number;
+  events: AgentSessionTaskEventDto[];
+  result: AgentSessionResponseDto | null;
+  error: string | null;
+}

@@ -96,7 +96,7 @@ export function AgentNavigator({
 
           {agentDetail.mcp_servers.length ? (
             <div className="detail-block">
-              <strong>MCP Servers</strong>
+              <strong>Connected Resources</strong>
               <div className="tag-row">
                 {agentDetail.mcp_servers.map((server) => (
                   <span key={server.server_ref} className="tag">
@@ -104,20 +104,7 @@ export function AgentNavigator({
                   </span>
                 ))}
               </div>
-              <div className="catalog-grid" style={{ marginTop: 12 }}>
-                {agentDetail.mcp_servers.map((server) => (
-                  <article key={server.server_ref} className="catalog-card">
-                    <strong>{server.name}</strong>
-                    <span>
-                      {server.server_ref} | {server.transport_kind}
-                    </span>
-                    <p>{server.description || "No description"}</p>
-                    <p>
-                      {server.tools.map((tool) => tool.tool_ref).join(", ") || "No tools discovered"}
-                    </p>
-                  </article>
-                ))}
-              </div>
+              <p>Show connected MCP servers only. Concrete tool names stay inside the run timeline instead of the sidebar.</p>
             </div>
           ) : null}
 
@@ -131,6 +118,10 @@ export function AgentNavigator({
                 mcp: {agentDetail.tool_catalog.mcp_tools.length}
               </span>
             </div>
+            <p>
+              This panel stays high level so the main console can focus on live progress,
+              decisions, and validation.
+            </p>
           </div>
         </div>
       ) : (

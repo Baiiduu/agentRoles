@@ -27,12 +27,13 @@ export function SessionComposer({
   onCreateSession,
   onDeleteSession,
 }: SessionComposerProps) {
+  const showCaseControls = cases.length > 0;
+
   return (
     <section className="panel context-panel">
       <h2 className="panel-title">Chat Settings</h2>
       <p className="section-copy">
-        Keep this playground focused on direct chat. Link a case only when you want the
-        conversation associated with one.
+        Keep this playground focused on direct single-agent coding work.
       </p>
 
       <div className="field">
@@ -64,29 +65,33 @@ export function SessionComposer({
         </button>
       </div>
 
-      <div className="field">
-        <label>Linked Case</label>
-        <select
-          value={form.caseId}
-          onChange={(event) => onChange({ caseId: event.target.value })}
-        >
-          <option value="">Standalone chat</option>
-          {cases.map((item) => (
-            <option key={item.case_id} value={item.case_id}>
-              {item.title} | {item.learner_name}
-            </option>
-          ))}
-        </select>
-      </div>
+      {showCaseControls ? (
+        <>
+          <div className="field">
+            <label>Linked Case</label>
+            <select
+              value={form.caseId}
+              onChange={(event) => onChange({ caseId: event.target.value })}
+            >
+              <option value="">Standalone chat</option>
+              {cases.map((item) => (
+                <option key={item.case_id} value={item.case_id}>
+                  {item.title} | {item.learner_name}
+                </option>
+              ))}
+            </select>
+          </div>
 
-      <label className="checkbox">
-        <input
-          type="checkbox"
-          checked={form.persistArtifact}
-          onChange={(event) => onChange({ persistArtifact: event.target.checked })}
-        />
-        <span>Write chat result back to the linked case when available</span>
-      </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.persistArtifact}
+              onChange={(event) => onChange({ persistArtifact: event.target.checked })}
+            />
+            <span>Write chat result back to the linked case when available</span>
+          </label>
+        </>
+      ) : null}
     </section>
   );
 }

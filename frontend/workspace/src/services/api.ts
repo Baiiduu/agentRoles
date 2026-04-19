@@ -19,6 +19,7 @@ import type {
   AgentChatSessionsDto,
   AgentDescriptorDto,
   AgentSessionResponseDto,
+  AgentSessionTaskDto,
 } from "../types/agentPlayground";
 import type { CaseCoordinationDto } from "../types/caseCoordinator";
 import type { CaseHandoffResponseDto } from "../types/caseHandoff";
@@ -255,5 +256,21 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     });
+  },
+  startAgentSessionTask(payload: {
+    agent_id: string;
+    session_id?: string | null;
+    case_id: string | null;
+    message: string;
+    ephemeral_context: Record<string, unknown>;
+    persist_artifact: boolean;
+  }) {
+    return requestJson<AgentSessionTaskDto>("/api/agent-session-tasks", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  getAgentSessionTask(taskId: string) {
+    return requestJson<AgentSessionTaskDto>(`/api/agent-session-tasks/${taskId}`);
   },
 };

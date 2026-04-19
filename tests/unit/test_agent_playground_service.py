@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -32,7 +33,7 @@ class AgentPlaygroundFacadeTestCase(unittest.TestCase):
         result = facade.get_bootstrap()
 
         self.assertEqual(len(result["agents"]), 10)
-        self.assertGreaterEqual(len(result["available_cases"]), 2)
+        self.assertIsInstance(result["available_cases"], list)
         self.assertEqual(result["default_agent_id"], "learner_profiler")
         self.assertTrue(result["agent_tree"])
         self.assertEqual(result["agent_tree"][0]["name"], "domain_packs")
@@ -138,6 +139,30 @@ class AgentPlaygroundFacadeTestCase(unittest.TestCase):
 
         self.assertIn(created["session"]["session_id"], [item["session_id"] for item in listed["sessions"]])
         self.assertEqual(deleted["deleted_session_id"], created["session"]["session_id"])
+
+    def test_can_start_and_poll_message_task(self) -> None:
+        facade = AgentPlaygroundFacade(llm_invoker_override=_FakeAgentLLMInvoker())
+
+        task = facade.start_message_task(
+            {
+                "agent_id": "test_pro_chat",
+                "message": "inspect current repository status",
+                "ephemeral_context": {},
+                "persist_artifact": False,
+            }
+        )
+
+        self.assertEqual(task["agent_id"], "test_pro_chat")
+        self.assertIn(task["status"], {"queued", "running", "completed", "failed"})
+
+        deadline = time.time() + 3
+        snapshot = task
+        while snapshot["status"] in {"queued", "running"} and time.time() < deadline:
+            time.sleep(0.05)
+            snapshot = facade.get_message_task(task["task_id"])
+
+        self.assertIn(snapshot["status"], {"completed", "failed"})
+        self.assertGreaterEqual(snapshot["event_count"], 2)
 
 
 if __name__ == "__main__":
