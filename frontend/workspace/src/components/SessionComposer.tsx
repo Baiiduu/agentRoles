@@ -15,6 +15,8 @@ interface SessionComposerProps {
   onChangeSession: (sessionId: string) => void;
   onCreateSession: () => void;
   onDeleteSession: () => void;
+  title?: string;
+  copy?: string;
 }
 
 export function SessionComposer({
@@ -26,15 +28,15 @@ export function SessionComposer({
   onChangeSession,
   onCreateSession,
   onDeleteSession,
+  title = "Chat Settings",
+  copy = "Keep this playground focused on direct single-agent coding work.",
 }: SessionComposerProps) {
   const showCaseControls = cases.length > 0;
 
   return (
     <section className="panel context-panel">
-      <h2 className="panel-title">Chat Settings</h2>
-      <p className="section-copy">
-        Keep this playground focused on direct single-agent coding work.
-      </p>
+      <h2 className="panel-title">{title}</h2>
+      <p className="section-copy">{copy}</p>
 
       <div className="field">
         <label>Conversation Session</label>

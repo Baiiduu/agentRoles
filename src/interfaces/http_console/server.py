@@ -73,6 +73,9 @@ class _ProjectApiMixin:
         if parsed.path == "/api/agent-resource-manager":
             self._send_json(self.service.get_agent_resource_manager_snapshot())
             return True
+        if parsed.path == "/api/software-supply-chain/ui-settings":
+            self._send_json(self.service.get_software_supply_chain_ui_settings())
+            return True
         if parsed.path.startswith("/api/agents/"):
             if parsed.path.endswith("/sessions"):
                 agent_id = (
@@ -218,6 +221,10 @@ class _ProjectApiMixin:
                 result = self.service.save_agent_workspace_root(payload)
                 self._send_json(result)
                 return True
+            if parsed.path == "/api/software-supply-chain/ui-settings":
+                result = self.service.save_software_supply_chain_ui_settings(payload)
+                self._send_json(result)
+                return True
             if parsed.path == "/api/agent-resource-manager/workspace-root/pick":
                 result = self.service.pick_agent_workspace_root()
                 self._send_json(result)
@@ -226,8 +233,36 @@ class _ProjectApiMixin:
                 result = self.service.provision_agent_workspace_root()
                 self._send_json(result)
                 return True
+            if parsed.path == "/api/agent-resource-manager/skills/sync":
+                result = self.service.sync_registered_skills()
+                self._send_json(result)
+                return True
+            if parsed.path.startswith("/api/agent-resource-manager/skill-sources/"):
+                source_ref = parsed.path.removeprefix("/api/agent-resource-manager/skill-sources/").strip("/")
+                if source_ref.endswith("/delete"):
+                    source_ref = source_ref.removesuffix("/delete").strip("/")
+                    if not source_ref:
+                        self._send_error_json(HTTPStatus.BAD_REQUEST, "source_ref is required")
+                        return True
+                    result = self.service.delete_registered_skill_source(source_ref)
+                    self._send_json(result)
+                    return True
+                if not source_ref:
+                    self._send_error_json(HTTPStatus.BAD_REQUEST, "source_ref is required")
+                    return True
+                result = self.service.save_registered_skill_source(source_ref, payload)
+                self._send_json(result)
+                return True
             if parsed.path.startswith("/api/agent-resource-manager/skills/"):
                 skill_name = parsed.path.removeprefix("/api/agent-resource-manager/skills/").strip("/")
+                if skill_name.endswith("/delete"):
+                    skill_name = skill_name.removesuffix("/delete").strip("/")
+                    if not skill_name:
+                        self._send_error_json(HTTPStatus.BAD_REQUEST, "skill_name is required")
+                        return True
+                    result = self.service.delete_registered_skill(skill_name)
+                    self._send_json(result)
+                    return True
                 if not skill_name:
                     self._send_error_json(HTTPStatus.BAD_REQUEST, "skill_name is required")
                     return True

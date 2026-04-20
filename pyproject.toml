@@ -20,6 +20,7 @@ dev = [
 
 [project.scripts]
 agentsroles-backend = "agentsroles.cli:run_backend"
+agentsroles-dev = "agentsroles.cli:run_dev"
 agentsroles-web = "agentsroles.cli:run_web_console"
 agentsroles-frontend = "agentsroles.cli:run_frontend"
 agentsroles-demo-mcp = "agentsroles.cli:run_demo_mcp_server"

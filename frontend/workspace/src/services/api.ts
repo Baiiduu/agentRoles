@@ -21,6 +21,7 @@ import type {
   AgentSessionResponseDto,
   AgentSessionTaskDto,
 } from "../types/agentPlayground";
+import type { SoftwareSupplyChainUiSettingsDto } from "../types/softwareSupplyChain";
 import type { CaseCoordinationDto } from "../types/caseCoordinator";
 import type { CaseHandoffResponseDto } from "../types/caseHandoff";
 import type { OverviewDto } from "../types/dashboard";
@@ -44,6 +45,15 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  getSoftwareSupplyChainUiSettings() {
+    return requestJson<SoftwareSupplyChainUiSettingsDto>("/api/software-supply-chain/ui-settings");
+  },
+  saveSoftwareSupplyChainUiSettings(payload: SoftwareSupplyChainUiSettingsDto) {
+    return requestJson<SoftwareSupplyChainUiSettingsDto>("/api/software-supply-chain/ui-settings", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
   getOverview() {
     return requestJson<OverviewDto>("/api/overview");
   },
@@ -215,6 +225,42 @@ export const api = {
       {
         method: "POST",
         body: JSON.stringify(payload),
+      },
+    );
+  },
+  deleteRegisteredSkill(skillName: string) {
+    return requestJson<{ deleted: boolean; skill_name: string }>(
+      `/api/agent-resource-manager/skills/${skillName}/delete`,
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+      },
+    );
+  },
+  syncRegisteredSkills() {
+    return requestJson<{
+      saved_skills: RegisteredSkillDto[];
+      discovery: AgentResourceManagerSnapshotDto["skill_discovery"];
+    }>("/api/agent-resource-manager/skills/sync", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  },
+  saveRegisteredSkillSource(sourceRef: string, payload: AgentResourceManagerSnapshotDto["registry"]["skill_sources"][number]) {
+    return requestJson<AgentResourceManagerSnapshotDto["registry"]["skill_sources"][number]>(
+      `/api/agent-resource-manager/skill-sources/${sourceRef}`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    );
+  },
+  deleteRegisteredSkillSource(sourceRef: string) {
+    return requestJson<{ deleted: boolean; source_ref: string }>(
+      `/api/agent-resource-manager/skill-sources/${sourceRef}/delete`,
+      {
+        method: "POST",
+        body: JSON.stringify({}),
       },
     );
   },

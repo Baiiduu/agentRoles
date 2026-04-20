@@ -84,6 +84,94 @@ class TestProAgentImplementationPolicyTestCase(unittest.TestCase):
         self.assertEqual(tool_ref, OPERATION_TOOL_REFS["lookup_definition"])
         self.assertEqual(tool_input["symbol"], "login_user")
 
+    def test_preferred_tool_decision_prefers_exact_replace_when_target_context_is_loaded(self) -> None:
+        normalized_input = _NormalizedTestProInput(
+            message='replace "old_value" with "new_value" in src/auth/login.py',
+            llm_profile_ref=None,
+            system_prompt="test",
+            available_tool_refs=[
+                OPERATION_TOOL_REFS["replace_in_file"],
+                OPERATION_TOOL_REFS["apply_patch"],
+                OPERATION_TOOL_REFS["read_file"],
+            ],
+        )
+
+        decision = _preferred_tool_decision(
+            normalized_input=normalized_input,
+            tool_context={
+                "step_1:read": {
+                    "tool_output": {
+                        "path": "src/auth/login.py",
+                    }
+                }
+            },
+        )
+
+        self.assertIsNotNone(decision)
+        tool_ref, tool_input, _ = decision
+        self.assertEqual(tool_ref, OPERATION_TOOL_REFS["replace_in_file"])
+        self.assertEqual(tool_input["path"], "src/auth/login.py")
+        self.assertEqual(tool_input["old_text"], "old_value")
+        self.assertEqual(tool_input["new_text"], "new_value")
+        self.assertEqual(tool_input["expected_occurrences"], 1)
+
+    def test_preferred_tool_decision_prefers_anchored_insert_when_target_context_is_loaded(self) -> None:
+        normalized_input = _NormalizedTestProInput(
+            message='insert "import os\\n" before "def login():" in src/auth/login.py',
+            llm_profile_ref=None,
+            system_prompt="test",
+            available_tool_refs=[
+                OPERATION_TOOL_REFS["insert_in_file"],
+                OPERATION_TOOL_REFS["apply_patch"],
+                OPERATION_TOOL_REFS["read_file"],
+            ],
+        )
+
+        decision = _preferred_tool_decision(
+            normalized_input=normalized_input,
+            tool_context={
+                "step_1:read": {
+                    "tool_output": {
+                        "path": "src/auth/login.py",
+                    }
+                }
+            },
+        )
+
+        self.assertIsNotNone(decision)
+        tool_ref, tool_input, _ = decision
+        self.assertEqual(tool_ref, OPERATION_TOOL_REFS["insert_in_file"])
+        self.assertEqual(tool_input["path"], "src/auth/login.py")
+        self.assertEqual(tool_input["anchor_text"], "def login():")
+        self.assertEqual(tool_input["insert_text"], "import os\\n")
+        self.assertEqual(tool_input["position"], "before")
+        self.assertEqual(tool_input["expected_occurrences"], 1)
+
+    def test_preferred_tool_decision_uses_task_memory_target_for_continue_request(self) -> None:
+        normalized_input = _NormalizedTestProInput(
+            message="continue the login task",
+            llm_profile_ref=None,
+            system_prompt="test",
+            available_tool_refs=[
+                OPERATION_TOOL_REFS["read_file"],
+                OPERATION_TOOL_REFS["list_files"],
+            ],
+            task_memory={
+                "target_files": ["src/auth/login.py"],
+                "pending_next_step": "Read src/auth/login.py and continue the focused edit.",
+            },
+        )
+
+        decision = _preferred_tool_decision(
+            normalized_input=normalized_input,
+            tool_context={},
+        )
+
+        self.assertIsNotNone(decision)
+        tool_ref, tool_input, _ = decision
+        self.assertEqual(tool_ref, OPERATION_TOOL_REFS["read_file"])
+        self.assertEqual(tool_input["path"], "src/auth/login.py")
+
     def test_apply_policy_stops_repeated_broad_exploration_loop(self) -> None:
         normalized_input = _NormalizedTestProInput(
             message="帮我找一下登录逻辑",
@@ -123,6 +211,41 @@ class TestProAgentImplementationPolicyTestCase(unittest.TestCase):
         self.assertFalse(adjusted["should_use_tools"])
         self.assertEqual(adjusted["suggested_tool_ref"], "")
         self.assertIn("broad exploration tool", adjusted["adjustment_reason"])
+
+    def test_apply_policy_redirects_broad_exploration_to_remembered_target(self) -> None:
+        normalized_input = _NormalizedTestProInput(
+            message="continue working on the remembered login fix",
+            llm_profile_ref=None,
+            system_prompt="test",
+            available_tool_refs=[
+                OPERATION_TOOL_REFS["list_files"],
+                OPERATION_TOOL_REFS["read_file"],
+            ],
+            task_memory={
+                "target_files": ["src/auth/login.py"],
+            },
+        )
+
+        adjusted = _apply_policy_to_decision(
+            {
+                "decision_type": "tool_call",
+                "reply": "explore the repository again",
+                "reasoning_summary": "need more context",
+                "should_use_tools": True,
+                "suggested_tool_ref": OPERATION_TOOL_REFS["list_files"],
+                "suggested_tool_input": {"path": ".", "recursive": True, "limit": 200},
+                "task_kind": "explore",
+                "next_step": "inspect repository structure",
+            },
+            normalized_input=normalized_input,
+            execution_trace=[],
+            tool_context={},
+            current_step=2,
+        )
+
+        self.assertEqual(adjusted["suggested_tool_ref"], OPERATION_TOOL_REFS["read_file"])
+        self.assertEqual(adjusted["suggested_tool_input"], {"path": "src/auth/login.py"})
+        self.assertIn("remembered target file", adjusted["adjustment_reason"])
 
     def test_apply_policy_does_not_block_focused_read_progress(self) -> None:
         normalized_input = _NormalizedTestProInput(
@@ -198,6 +321,102 @@ class TestProAgentImplementationPolicyTestCase(unittest.TestCase):
         self.assertEqual(adjusted["suggested_tool_ref"], OPERATION_TOOL_REFS["read_file"])
         self.assertEqual(adjusted["suggested_tool_input"], {"path": "src/auth/login.py"})
         self.assertIn("Edit readiness blocked", adjusted["adjustment_reason"])
+
+    def test_apply_policy_requires_preview_before_structured_replace(self) -> None:
+        normalized_input = _NormalizedTestProInput(
+            message='replace "old_value" with "new_value" in src/auth/login.py',
+            llm_profile_ref=None,
+            system_prompt="test",
+            available_tool_refs=[
+                OPERATION_TOOL_REFS["preview_structured_edit"],
+                OPERATION_TOOL_REFS["replace_in_file"],
+            ],
+        )
+
+        adjusted = _apply_policy_to_decision(
+            {
+                "decision_type": "tool_call",
+                "reply": "apply exact replace",
+                "reasoning_summary": "use structured edit",
+                "should_use_tools": True,
+                "suggested_tool_ref": OPERATION_TOOL_REFS["replace_in_file"],
+                "suggested_tool_input": {
+                    "path": "src/auth/login.py",
+                    "old_text": "old_value",
+                    "new_text": "new_value",
+                    "expected_occurrences": 1,
+                },
+                "task_kind": "edit",
+                "next_step": "replace the target text",
+            },
+            normalized_input=normalized_input,
+            execution_trace=[],
+            tool_context={
+                "step_1:read": {
+                    "tool_output": {"path": "src/auth/login.py"},
+                }
+            },
+            current_step=2,
+        )
+
+        self.assertEqual(adjusted["suggested_tool_ref"], OPERATION_TOOL_REFS["preview_structured_edit"])
+        self.assertEqual(adjusted["suggested_tool_input"]["edit_kind"], "replace")
+        self.assertIn("preview step", adjusted["adjustment_reason"])
+
+    def test_apply_policy_stops_structured_replace_when_preview_is_not_applicable(self) -> None:
+        normalized_input = _NormalizedTestProInput(
+            message='replace "old_value" with "new_value" in src/auth/login.py',
+            llm_profile_ref=None,
+            system_prompt="test",
+            available_tool_refs=[
+                OPERATION_TOOL_REFS["preview_structured_edit"],
+                OPERATION_TOOL_REFS["replace_in_file"],
+            ],
+        )
+
+        adjusted = _apply_policy_to_decision(
+            {
+                "decision_type": "tool_call",
+                "reply": "apply exact replace",
+                "reasoning_summary": "use structured edit",
+                "should_use_tools": True,
+                "suggested_tool_ref": OPERATION_TOOL_REFS["replace_in_file"],
+                "suggested_tool_input": {
+                    "path": "src/auth/login.py",
+                    "old_text": "old_value",
+                    "new_text": "new_value",
+                    "expected_occurrences": 1,
+                },
+                "task_kind": "edit",
+                "next_step": "replace the target text",
+            },
+            normalized_input=normalized_input,
+            execution_trace=[],
+            tool_context={
+                "step_1:read": {
+                    "tool_output": {"path": "src/auth/login.py"},
+                },
+                "step_2:preview": {
+                    "tool_ref": OPERATION_TOOL_REFS["preview_structured_edit"],
+                    "tool_input": {
+                        "path": "src/auth/login.py",
+                        "edit_kind": "replace",
+                        "old_text": "old_value",
+                        "expected_occurrences": 1,
+                    },
+                    "tool_output": {
+                        "applicable": False,
+                        "ambiguous": True,
+                        "reason": "multiple matches found",
+                    },
+                },
+            },
+            current_step=3,
+        )
+
+        self.assertEqual(adjusted["decision_type"], "respond")
+        self.assertFalse(adjusted["should_use_tools"])
+        self.assertIn("not safely applicable", adjusted["adjustment_reason"])
 
     def test_edit_readiness_reports_missing_target_context(self) -> None:
         normalized_input = _NormalizedTestProInput(

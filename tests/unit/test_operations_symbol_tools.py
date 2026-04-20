@@ -18,7 +18,10 @@ from core.stores import InMemoryCheckpointStore, InMemoryEventStore, InMemorySta
 from core.workflow.workflow_models import CompiledWorkflow, InputSelector, InputSource, InputSourceType, NodeSpec
 from domain_packs.operations.filesystem import (
     find_references_handler,
+    insert_in_file_handler,
     lookup_definition_handler,
+    preview_structured_edit_handler,
+    replace_in_file_handler,
     symbol_outline_handler,
     symbol_search_handler,
 )
@@ -131,6 +134,133 @@ class OperationSymbolToolsTestCase(unittest.TestCase):
             self.assertTrue(any(item["name"] == "LoginManager" for item in symbols.output["matches"]))
             self.assertTrue(references.success)
             self.assertTrue(any(item["match_kind"] == "reference" for item in references.output["matches"]))
+
+    def test_replace_in_file_requires_unambiguous_match_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sample = root / "pkg" / "sample.py"
+            sample.parent.mkdir(parents=True, exist_ok=True)
+            sample.write_text(
+                "\n".join(
+                    [
+                        "token = 'old_value'",
+                        "another = 'old_value'",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            context = _context(root)
+
+            ambiguous = replace_in_file_handler(
+                {
+                    "path": "pkg/sample.py",
+                    "old_text": "old_value",
+                    "new_text": "new_value",
+                },
+                context,
+            )
+            exact = replace_in_file_handler(
+                {
+                    "path": "pkg/sample.py",
+                    "old_text": "old_value",
+                    "new_text": "new_value",
+                    "expected_occurrences": 2,
+                    "replace_all": True,
+                },
+                context,
+            )
+
+            self.assertFalse(ambiguous.success)
+            self.assertEqual(ambiguous.error_code, "FS_REPLACE_AMBIGUOUS")
+            self.assertTrue(exact.success)
+            self.assertEqual(exact.output["change_count"], 2)
+            self.assertIn("new_value", sample.read_text(encoding="utf-8"))
+
+    def test_insert_in_file_uses_anchor_and_rejects_ambiguous_matches(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sample = root / "pkg" / "sample.py"
+            sample.parent.mkdir(parents=True, exist_ok=True)
+            sample.write_text(
+                "\n".join(
+                    [
+                        "def login():",
+                        "    pass",
+                        "",
+                        "def login():",
+                        "    pass",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            context = _context(root)
+
+            ambiguous = insert_in_file_handler(
+                {
+                    "path": "pkg/sample.py",
+                    "anchor_text": "def login():",
+                    "insert_text": "import os\n",
+                    "position": "before",
+                },
+                context,
+            )
+            exact = insert_in_file_handler(
+                {
+                    "path": "pkg/sample.py",
+                    "anchor_text": "def login():",
+                    "insert_text": "import os\n",
+                    "position": "before",
+                    "expected_occurrences": 2,
+                },
+                context,
+            )
+
+            self.assertFalse(ambiguous.success)
+            self.assertEqual(ambiguous.error_code, "FS_INSERT_AMBIGUOUS")
+            self.assertTrue(exact.success)
+            self.assertIn("import os", sample.read_text(encoding="utf-8"))
+
+    def test_preview_structured_edit_reports_applicability_and_ambiguity(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sample = root / "pkg" / "sample.py"
+            sample.parent.mkdir(parents=True, exist_ok=True)
+            sample.write_text(
+                "\n".join(
+                    [
+                        "def login():",
+                        "    token = 'old_value'",
+                        "    shadow = 'old_value'",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            context = _context(root)
+
+            replace_preview = preview_structured_edit_handler(
+                {
+                    "path": "pkg/sample.py",
+                    "edit_kind": "replace",
+                    "old_text": "old_value",
+                },
+                context,
+            )
+            insert_preview = preview_structured_edit_handler(
+                {
+                    "path": "pkg/sample.py",
+                    "edit_kind": "insert",
+                    "anchor_text": "def login():",
+                    "position": "before",
+                },
+                context,
+            )
+
+            self.assertTrue(replace_preview.success)
+            self.assertFalse(replace_preview.output["applicable"])
+            self.assertTrue(replace_preview.output["ambiguous"])
+            self.assertTrue(insert_preview.success)
+            self.assertTrue(insert_preview.output["applicable"])
+            self.assertFalse(insert_preview.output["ambiguous"])
 
 
 if __name__ == "__main__":

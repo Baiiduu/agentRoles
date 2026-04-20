@@ -66,6 +66,10 @@ class RegisteredSkill:
     trigger_kinds: list[str] = field(default_factory=list)
     enabled: bool = True
     notes: str = ""
+    source_kind: str = "manual"
+    source_path: str = ""
+    prompt_file: str = ""
+    metadata: dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.skill_name = self.skill_name.strip()
@@ -73,8 +77,37 @@ class RegisteredSkill:
         self.description = self.description.strip()
         self.trigger_kinds = [item.strip() for item in self.trigger_kinds if item.strip()]
         self.notes = self.notes.strip()
+        self.source_kind = self.source_kind.strip() or "manual"
+        self.source_path = self.source_path.strip()
+        self.prompt_file = self.prompt_file.strip()
+        self.metadata = {
+            str(key).strip(): value
+            for key, value in self.metadata.items()
+            if str(key).strip()
+        }
         if not self.skill_name:
             raise ValueError("skill_name must be non-empty")
+
+
+@dataclass
+class RegisteredSkillSource:
+    source_ref: str
+    source_kind: str = "custom"
+    root_path: str = ""
+    label: str = ""
+    enabled: bool = True
+    notes: str = ""
+
+    def __post_init__(self) -> None:
+        self.source_ref = self.source_ref.strip()
+        self.source_kind = self.source_kind.strip() or "custom"
+        self.root_path = self.root_path.strip()
+        self.label = self.label.strip() or self.source_ref
+        self.notes = self.notes.strip()
+        if not self.source_ref:
+            raise ValueError("source_ref must be non-empty")
+        if not self.root_path:
+            raise ValueError("root_path must be non-empty")
 
 
 @dataclass
@@ -99,6 +132,7 @@ class ResourceRegistry:
     workspace_root: WorkspaceRootConfig = field(default_factory=WorkspaceRootConfig)
     mcp_servers: list[RegisteredMCPServer] = field(default_factory=list)
     skills: list[RegisteredSkill] = field(default_factory=list)
+    skill_sources: list[RegisteredSkillSource] = field(default_factory=list)
     agent_workspaces: list[AgentWorkspaceRegistration] = field(default_factory=list)
 
 

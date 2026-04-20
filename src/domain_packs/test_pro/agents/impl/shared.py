@@ -20,6 +20,7 @@ class _NormalizedTestProInput:
     workspace_enabled: bool = False
     memory_scopes: list[str] = field(default_factory=list)
     memory_context: dict[str, list[dict[str, object]]] = field(default_factory=dict)
+    task_memory: dict[str, object] = field(default_factory=dict)
     raw_selected_input: dict[str, object] = field(default_factory=dict)
 
 
@@ -41,6 +42,9 @@ _PREFERRED_TOOL_ORDER = [
     OPERATION_TOOL_REFS["find_in_file"],
     OPERATION_TOOL_REFS["read_file_segment"],
     OPERATION_TOOL_REFS["read_file"],
+    OPERATION_TOOL_REFS["preview_structured_edit"],
+    OPERATION_TOOL_REFS["replace_in_file"],
+    OPERATION_TOOL_REFS["insert_in_file"],
     OPERATION_TOOL_REFS["apply_patch"],
     OPERATION_TOOL_REFS["git_status"],
     OPERATION_TOOL_REFS["git_diff"],
@@ -72,6 +76,8 @@ _BROAD_EXPLORATION_TOOL_REFS = {
 }
 
 _EDIT_TOOL_REFS = {
+    OPERATION_TOOL_REFS["replace_in_file"],
+    OPERATION_TOOL_REFS["insert_in_file"],
     OPERATION_TOOL_REFS["apply_patch"],
     OPERATION_TOOL_REFS["write_file"],
     OPERATION_TOOL_REFS["move_file"],
@@ -221,6 +227,50 @@ def _load_memory_context(
     return memory_context
 
 
+def _memory_scope_priority(scope: str) -> tuple[int, str]:
+    if scope.startswith("session:"):
+        return (0, scope)
+    if scope.startswith("domain:"):
+        return (1, scope)
+    return (2, scope)
+
+
+def _derive_task_memory(
+    memory_context: dict[str, list[dict[str, object]]],
+    raw_selected_input: dict[str, object],
+    message: str,
+) -> dict[str, object]:
+    merged: dict[str, object] = {}
+    for scope in sorted(memory_context.keys(), key=_memory_scope_priority):
+        for item in memory_context.get(scope, []):
+            payload = item.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            task_memory = payload.get("task_memory")
+            if not isinstance(task_memory, dict):
+                continue
+            for key, value in task_memory.items():
+                if key not in merged and value not in (None, "", [], {}):
+                    merged[key] = deepcopy(value)
+    task_goal = raw_selected_input.get("task_goal")
+    if isinstance(task_goal, str) and task_goal.strip():
+        merged["objective"] = task_goal.strip()
+    elif "objective" not in merged and message.strip():
+        merged["objective"] = message.strip()
+    acceptance = raw_selected_input.get("acceptance_criteria")
+    if acceptance is not None and "acceptance_criteria" not in merged:
+        merged["acceptance_criteria"] = deepcopy(acceptance)
+    changed_files = _changed_files_hints(raw_selected_input)
+    if changed_files:
+        existing = merged.get("target_files")
+        base = list(existing) if isinstance(existing, list) else []
+        for item in changed_files:
+            if item not in base:
+                base.append(item)
+        merged["target_files"] = base
+    return merged
+
+
 def _normalize_input(context: ExecutionContext) -> _NormalizedTestProInput:
     selected_input = deepcopy(dict(context.selected_input))
     message_value = selected_input.get("message")
@@ -244,6 +294,11 @@ def _normalize_input(context: ExecutionContext) -> _NormalizedTestProInput:
         context,
         normalized_input=normalized,
         scopes=normalized.memory_scopes,
+    )
+    normalized.task_memory = _derive_task_memory(
+        normalized.memory_context,
+        normalized.raw_selected_input,
+        normalized.message,
     )
     return normalized
 
@@ -394,7 +449,10 @@ def _has_validation_activity(execution_trace: list[dict[str, object]]) -> bool:
 
 
 def _is_edit_request(lowered: str) -> bool:
-    return any(keyword in lowered for keyword in ["patch", "edit", "modify", "change", "update", "fix", "修改", "修复", "更新"])
+    return any(
+        keyword in lowered
+        for keyword in ["patch", "edit", "modify", "change", "update", "fix", "replace", "insert", "修改", "修复", "更新", "替换", "插入"]
+    )
 
 
 def _is_git_status_request(lowered: str) -> bool:

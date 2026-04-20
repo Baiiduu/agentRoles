@@ -123,6 +123,8 @@ http://127.0.0.1:8765
 ### 4. 其他常用运行命令
 
 ```powershell
+& .\.local\venv\Scripts\python.exe .\run_dev.py
+& .\.local\venv\Scripts\python.exe -m agentsroles dev
 & .\.local\venv\Scripts\python.exe -m agentsroles backend
 & .\.local\venv\Scripts\python.exe -m agentsroles web
 & .\.local\venv\Scripts\python.exe -m agentsroles frontend

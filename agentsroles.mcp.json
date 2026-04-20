@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "notes": "Add MCP server definitions here to import them into the runtime registry.",
+  "mcp_servers": []
+}

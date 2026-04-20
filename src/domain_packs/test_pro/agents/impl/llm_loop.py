@@ -39,7 +39,7 @@ def _build_decision_system_prompt(normalized_input: _NormalizedTestProInput) -> 
             "Allowed decision_type values: 'respond' or 'tool_call'.",
             f"Currently available tool refs: {tool_line}.",
             "Prefer repository tools over shell when possible.",
-            "Use symbol tools for symbol questions, read/search tools for file context, and patch tools only after enough context is collected.",
+            "Use symbol tools for symbol questions, read/search tools for file context, preview tools before structured edits when applicable, exact replace tools for precise snippet edits, anchored insert tools for safe insertions, and patch tools only after enough context is collected.",
             "Include all required keys exactly: " + ", ".join(_decision_required_keys()) + ".",
         ]
     )
@@ -69,6 +69,7 @@ def _build_loop_payload(
         "execution_trace": execution_trace,
         "tool_context": tool_context,
         "memory_context": normalized_input.memory_context,
+        "task_memory": normalized_input.task_memory,
         "conversation_history": _conversation_history_payload(normalized_input.raw_selected_input),
         "raw_selected_input": _serializable_selected_input(normalized_input.raw_selected_input),
     }
@@ -302,6 +303,8 @@ def _persist_memory_snapshot(
     normalized_input: _NormalizedTestProInput,
     execution_trace: list[dict[str, object]],
     tool_context: dict[str, object],
+    latest_decision: dict[str, object] | None,
+    current_phase: str,
     final_reply: str,
     final_summary: str | None,
     loop_stop_reason: str,
@@ -310,7 +313,17 @@ def _persist_memory_snapshot(
     if services is None or services.memory_provider is None or not normalized_input.memory_scopes:
         return []
     from .shared import _changed_files_hints, _has_edit_activity, _has_validation_activity
+    from .state import _task_memory_snapshot
 
+    task_memory = _task_memory_snapshot(
+        normalized_input=normalized_input,
+        execution_trace=execution_trace,
+        tool_context=tool_context,
+        latest_decision=latest_decision,
+        current_phase=current_phase,
+        final_summary=final_summary or final_reply,
+        loop_stop_reason=loop_stop_reason,
+    )
     payload = {
         "message": normalized_input.message,
         "task_goal": normalized_input.raw_selected_input.get("task_goal"),
@@ -321,6 +334,7 @@ def _persist_memory_snapshot(
         "reply": final_reply,
         "edited": _has_edit_activity(execution_trace),
         "validated": _has_validation_activity(execution_trace),
+        "task_memory": task_memory,
         "touched_tool_refs": [
             str(entry.get("tool_ref", "")).strip()
             for entry in execution_trace

@@ -16,12 +16,14 @@ export function WorkspaceShell({
   return (
     <div className="workspace-shell">
       <aside className="workspace-sidebar">
-        <p className="workspace-eyebrow">Education Workspace</p>
-        <h1 className="workspace-title">教育多智能体工作台</h1>
+        <p className="workspace-eyebrow">AgentsRoles Console</p>
+        <h1 className="workspace-title">Multi-Agent Domain Workspace</h1>
+        <p className="workspace-sidebar-copy">
+          Explore domain dashboards, agent operations, and execution flows from one shared
+          console.
+        </p>
         <nav className="workspace-nav">
-          {(
-            Object.keys(pageLabels) as WorkspacePageKey[]
-          ).map((pageKey) => (
+          {(Object.keys(pageLabels) as WorkspacePageKey[]).map((pageKey) => (
             <button
               key={pageKey}
               className={pageKey === currentPage ? "nav-item active" : "nav-item"}

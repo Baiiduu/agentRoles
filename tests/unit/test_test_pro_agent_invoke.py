@@ -77,7 +77,17 @@ class _FakeMemoryProvider:
                     memory_id="memory-session-1",
                     scope=scope,
                     score=0.9,
-                    payload={"summary": "previous login investigation", "content": "read src/auth/login.py"},
+                    payload={
+                        "summary": "previous login investigation",
+                        "content": "read src/auth/login.py",
+                        "task_memory": {
+                            "objective": "fix login bug",
+                            "target_files": ["src/auth/login.py"],
+                            "confirmed_facts": ["Target file was previously inspected."],
+                            "pending_next_step": "Decide whether the login branch needs a focused edit.",
+                            "last_validation_status": "required",
+                        },
+                    },
                     source_ref="run-prev",
                 )
             ]
@@ -320,6 +330,10 @@ class TestProAgentInvokeTestCase(unittest.TestCase):
         self.assertEqual(result.output["task_state"]["current_phase"], "report")
         self.assertGreaterEqual(result.output["working_summary"]["memory_hits"], 1)
         self.assertIn("status", result.output["validation_plan"])
+        self.assertIn("task_memory", result.output)
+        self.assertEqual(result.output["task_memory"]["objective"], "fix login bug")
+        self.assertIn("src/auth/login.py", result.output["task_memory"]["target_files"])
+        self.assertTrue(memory_provider.write_calls[0]["payload"]["task_memory"]["confirmed_facts"])
 
     def test_invoke_exposes_edit_readiness_for_edit_request(self) -> None:
         implementation = TestProChatImplementation()

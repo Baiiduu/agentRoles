@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AgentResourceDistributionPanel } from "../components/AgentResourceDistributionPanel";
 import { ResourceManagerNavigator } from "../components/ResourceManagerNavigator";
+import { ResourceRegistryPanel } from "../components/ResourceRegistryPanel";
 import { WorkspaceRootPanel } from "../components/WorkspaceRootPanel";
 import { api } from "../services/api";
 import type { AgentResourceManagerSnapshotDto } from "../types/agentResourceManager";
@@ -31,15 +32,18 @@ export function AgentResourceManagerPage() {
     <section className="page-shell">
       <header className="page-header">
         <p className="workspace-eyebrow">Resource Manager</p>
-        <h2 className="page-title">Agent MCP Access Manager</h2>
+        <h2 className="page-title">Agent Skills And MCP Manager</h2>
         <p className="page-copy">
-          这里只保留按 agent 管理 MCP 接入的流程。选择左侧 agent，然后直接在中间完成 MCP 接入和移除。
+          Keep a Codex-style catalog first: discover skills, register MCP servers, then
+          distribute the right capabilities into each agent runtime.
         </p>
         {snapshot ? (
           <div className="tag-row">
             <span className="tag">MCP: {snapshot.registered_counts.mcp_servers}</span>
+            <span className="tag">Skills: {snapshot.registered_counts.skills}</span>
             <span className="tag">Workspaces: {snapshot.registered_counts.workspaces}</span>
             <span className="tag">Agents with MCP: {snapshot.distribution_health.agents_with_mcp}</span>
+            <span className="tag">Agents with Skills: {snapshot.distribution_health.agents_with_skills}</span>
           </div>
         ) : null}
       </header>
@@ -94,6 +98,48 @@ export function AgentResourceManagerPage() {
           }}
         />
       </div>
+      <ResourceRegistryPanel
+        mcpServers={snapshot?.registry.mcp_servers || []}
+        skills={snapshot?.registry.skills || []}
+        discoveredSkills={snapshot?.skill_discovery.skills || []}
+        discoverySources={snapshot?.skill_discovery.sources || []}
+        skillSources={snapshot?.registry.skill_sources || []}
+        onSaveMcpServer={async (payload) => {
+          setError("");
+          await api.saveRegisteredMcpServer(payload.server_ref, payload);
+          await refreshSnapshot(selectedAgentId);
+        }}
+        onAuthenticateMcpServer={async (serverRef) => {
+          setError("");
+          await api.authenticateRegisteredMcpServer(serverRef);
+          await refreshSnapshot(selectedAgentId);
+        }}
+        onTestMcpServer={async (serverRef) => {
+          setError("");
+          await api.testRegisteredMcpServer(serverRef);
+          await refreshSnapshot(selectedAgentId);
+        }}
+        onDiscoverMcpTools={async (serverRef) => {
+          setError("");
+          await api.discoverRegisteredMcpServerTools(serverRef);
+          await refreshSnapshot(selectedAgentId);
+        }}
+        onSaveSkill={async (payload) => {
+          setError("");
+          await api.saveRegisteredSkill(payload.skill_name, payload);
+          await refreshSnapshot(selectedAgentId);
+        }}
+        onSaveSkillSource={async (payload) => {
+          setError("");
+          await api.saveRegisteredSkillSource(payload.source_ref || "", payload);
+          await refreshSnapshot(selectedAgentId);
+        }}
+        onSyncSkills={async () => {
+          setError("");
+          await api.syncRegisteredSkills();
+          await refreshSnapshot(selectedAgentId);
+        }}
+      />
     </section>
   );
 }

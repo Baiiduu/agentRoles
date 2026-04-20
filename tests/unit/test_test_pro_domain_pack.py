@@ -41,6 +41,7 @@ class TestProDomainPackTestCase(unittest.TestCase):
         self.assertIn("normalized_input", descriptor.output_contract["produces"])
         self.assertIn("memory_context", descriptor.output_contract["produces"])
         self.assertIn("recommended_memory_scope", descriptor.output_contract["produces"])
+        self.assertIn("task_memory", descriptor.output_contract["produces"])
         self.assertIn("current_phase", descriptor.output_contract["produces"])
         self.assertIn("working_summary", descriptor.output_contract["produces"])
         self.assertIn("task_state", descriptor.output_contract["produces"])

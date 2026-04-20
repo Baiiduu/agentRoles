@@ -8,6 +8,7 @@ from core.agents import AgentDescriptor
 from application.agent_admin.agent_capability_service import AgentCapabilityFacade
 from application.agent_admin.agent_config_service import AgentConfigFacade
 from application.resource_manager.agent_resource_manager_service import AgentResourceManagerFacade
+from application.runtime.skill_prompt_service import build_runtime_skill_packages
 from infrastructure.mcp.mcp_runtime_service import build_mcp_server_catalog
 
 
@@ -53,6 +54,7 @@ class AgentRuntimeContextFacade:
             capability_payload = self._agent_capability.get_capability(descriptor.agent_id)
             resolved_preview = capability_payload.get("resolved_preview") or {}
             distribution = agent_distribution.get(descriptor.agent_id, {})
+            assigned_skill_names = distribution.get("distribution", {}).get("assigned_skills", [])
             assigned_mcp_servers = [
                 deepcopy(item)
                 for item in resource_snapshot.get("registry", {}).get("mcp_servers", [])
@@ -74,6 +76,16 @@ class AgentRuntimeContextFacade:
                 list(runtime_descriptor.policy_profiles)
                 + [str(item) for item in (resolved_preview.get("resolved_policy_profiles") or [])]
             )
+            assigned_skills = [
+                deepcopy(item)
+                for item in resource_snapshot.get("registry", {}).get("skills", [])
+                if item.get("skill_name") in assigned_skill_names
+            ]
+            assigned_skill_bindings = [
+                deepcopy(item)
+                for item in (capability_payload.get("skill_bindings") or [])
+                if item.get("enabled", True) and item.get("skill_name") in assigned_skill_names
+            ]
             runtime_descriptor.metadata = {
                 **runtime_descriptor.metadata,
                 "capability_metadata": capability_payload,
@@ -85,12 +97,12 @@ class AgentRuntimeContextFacade:
                         for server in mcp_server_catalog
                         for tool in server.get("tools", [])
                     ],
-                    "skills": [
-                        deepcopy(item)
-                        for item in resource_snapshot.get("registry", {}).get("skills", [])
-                        if item.get("skill_name")
-                        in distribution.get("distribution", {}).get("assigned_skills", [])
-                    ],
+                    "skills": assigned_skills,
+                    "skill_bindings": assigned_skill_bindings,
+                    "skill_packages": build_runtime_skill_packages(
+                        registered_skills=assigned_skills,
+                        skill_bindings=assigned_skill_bindings,
+                    ),
                     "workspace": deepcopy(
                         distribution.get("distribution", {}).get("workspace")
                     ),

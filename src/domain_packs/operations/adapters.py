@@ -8,13 +8,16 @@ from .filesystem import (
     delete_file_handler,
     find_in_file_handler,
     find_references_handler,
+    insert_in_file_handler,
     list_dir_handler,
     list_files_handler,
     lookup_definition_handler,
     make_dir_handler,
     move_file_handler,
+    preview_structured_edit_handler,
     read_file_handler,
     read_file_segment_handler,
+    replace_in_file_handler,
     ripgrep_search_handler,
     search_files_handler,
     symbol_outline_handler,
@@ -44,6 +47,9 @@ def register_operation_tool_handlers(adapter: FunctionToolAdapter) -> None:
     adapter.register_handler(OPERATION_TOOL_REFS["search_files"], search_files_handler)
     adapter.register_handler(OPERATION_TOOL_REFS["ripgrep_search"], ripgrep_search_handler)
     adapter.register_handler(OPERATION_TOOL_REFS["write_file"], write_file_handler)
+    adapter.register_handler(OPERATION_TOOL_REFS["preview_structured_edit"], preview_structured_edit_handler)
+    adapter.register_handler(OPERATION_TOOL_REFS["replace_in_file"], replace_in_file_handler)
+    adapter.register_handler(OPERATION_TOOL_REFS["insert_in_file"], insert_in_file_handler)
     adapter.register_handler(OPERATION_TOOL_REFS["apply_patch"], apply_patch_handler)
     adapter.register_handler(OPERATION_TOOL_REFS["make_dir"], make_dir_handler)
     adapter.register_handler(OPERATION_TOOL_REFS["delete_file"], delete_file_handler)

@@ -1,4 +1,5 @@
 export type WorkspacePageKey =
+  | "supplyChain"
   | "dashboard"
   | "playground"
   | "agentConfig"
