@@ -13,6 +13,9 @@ from application.agent_admin.standard_agent_capability import (
     StandardAgentCapabilityService,
     StandardAgentCapabilityRepository,
 )
+from application.resource_manager.mcp_import_config import (
+    MCPImportConfigRepository,
+)
 from core.resource_registry import (
     FileResourceRegistryRepository,
     ResourceRegistryService,
@@ -28,55 +31,94 @@ from infrastructure.mcp.mcp_auth_service import MCPAuthService
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-RESOURCE_REGISTRY_FILE = PROJECT_ROOT / "runtime_data" / "agent_resource_registry.json"
+RESOURCE_MANAGER_STORAGE_DIR = Path("resource_manager")
+AGENT_ADMIN_STORAGE_DIR = Path("agent_admin")
+LEGACY_RESOURCE_REGISTRY_FILE = PROJECT_ROOT / "runtime_data" / "agent_resource_registry.json"
 LEGACY_EDUCATION_RESOURCE_REGISTRY_FILE = (
     PROJECT_ROOT / "runtime_data" / "education" / "agent_resource_registry.json"
 )
-AGENT_CAPABILITY_FILE = PROJECT_ROOT / "runtime_data" / "agent_capabilities.json"
+LEGACY_AGENT_CAPABILITY_FILE = PROJECT_ROOT / "runtime_data" / "agent_capabilities.json"
 LEGACY_EDUCATION_AGENT_CAPABILITY_FILE = (
     PROJECT_ROOT / "runtime_data" / "education" / "agent_capabilities.json"
 )
+MCP_IMPORT_CONFIG_FILE = PROJECT_ROOT / "agentsroles.mcp.json"
+
+
+def _resource_registry_file(settings) -> Path:
+    return settings.files_root / RESOURCE_MANAGER_STORAGE_DIR / "agent_resource_registry.json"
+
+
+def _agent_capability_file(settings) -> Path:
+    return settings.files_root / AGENT_ADMIN_STORAGE_DIR / "agent_capabilities.json"
+
+
+def _pick_legacy_file(primary: Path, secondary: Path) -> Path | None:
+    if primary.exists():
+        return primary
+    if secondary.exists():
+        return secondary
+    return None
 
 class AgentResourceManagerFacade:
     def __init__(self) -> None:
         settings = get_persistence_settings()
+        resource_registry_file = _resource_registry_file(settings)
+        agent_capability_file = _agent_capability_file(settings)
+        legacy_resource_registry_file = _pick_legacy_file(
+            LEGACY_RESOURCE_REGISTRY_FILE,
+            LEGACY_EDUCATION_RESOURCE_REGISTRY_FILE,
+        )
+        legacy_agent_capability_file = _pick_legacy_file(
+            LEGACY_AGENT_CAPABILITY_FILE,
+            LEGACY_EDUCATION_AGENT_CAPABILITY_FILE,
+        )
         if (
-            not RESOURCE_REGISTRY_FILE.exists()
-            and LEGACY_EDUCATION_RESOURCE_REGISTRY_FILE.exists()
+            settings.backend != "sqlite"
+            and not resource_registry_file.exists()
+            and legacy_resource_registry_file is not None
         ):
-            RESOURCE_REGISTRY_FILE.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(LEGACY_EDUCATION_RESOURCE_REGISTRY_FILE, RESOURCE_REGISTRY_FILE)
+            resource_registry_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(legacy_resource_registry_file, resource_registry_file)
+        if (
+            settings.backend != "sqlite"
+            and not agent_capability_file.exists()
+            and legacy_agent_capability_file is not None
+        ):
+            agent_capability_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(legacy_agent_capability_file, agent_capability_file)
         if settings.backend == "sqlite":
             resource_repository = SQLiteResourceRegistryRepository(
                 SQLiteDocumentStore(settings.sqlite_path),
                 legacy_file_path=(
-                    RESOURCE_REGISTRY_FILE
-                    if RESOURCE_REGISTRY_FILE.exists()
-                    else LEGACY_EDUCATION_RESOURCE_REGISTRY_FILE
+                    resource_registry_file
+                    if resource_registry_file.exists()
+                    else legacy_resource_registry_file
                 ),
                 default_workspace_root=settings.default_workspace_root,
             )
         else:
-            resource_repository = FileResourceRegistryRepository(RESOURCE_REGISTRY_FILE)
+            resource_repository = FileResourceRegistryRepository(resource_registry_file)
         self._resource_service = ResourceRegistryService(resource_repository, project_root=PROJECT_ROOT)
         if settings.backend == "sqlite":
             capability_repository = SQLiteAgentCapabilityRepository(
                 SQLiteDocumentStore(settings.sqlite_path),
                 legacy_file_path=(
-                    AGENT_CAPABILITY_FILE
-                    if AGENT_CAPABILITY_FILE.exists()
-                    else LEGACY_EDUCATION_AGENT_CAPABILITY_FILE
+                    agent_capability_file
+                    if agent_capability_file.exists()
+                    else legacy_agent_capability_file
                 ),
             )
         else:
             capability_repository = StandardAgentCapabilityRepository(
-                AGENT_CAPABILITY_FILE,
-                legacy_file_path=LEGACY_EDUCATION_AGENT_CAPABILITY_FILE,
+                agent_capability_file,
+                legacy_file_path=legacy_agent_capability_file,
             )
         self._capability_service = StandardAgentCapabilityService(capability_repository)
         self._external_mcp = ExternalMCPClientService(
             MCPAuthService(settings.auth_root / "mcp_auth.json")
         )
+        self._mcp_import_config = MCPImportConfigRepository(MCP_IMPORT_CONFIG_FILE)
+        self._sync_mcp_import_config()
 
     def get_snapshot(self) -> dict[str, object]:
         registry = self._resource_service.get_registry()
@@ -126,6 +168,7 @@ class AgentResourceManagerFacade:
                 "workspace_root": asdict(registry.workspace_root),
                 "mcp_servers": [asdict(item) for item in registry.mcp_servers],
                 "skills": [asdict(item) for item in registry.skills],
+                "skill_sources": [asdict(item) for item in registry.skill_sources],
                 "agent_workspaces": [
                     self._serialize_workspace(item) for item in registry.agent_workspaces
                 ],
@@ -154,11 +197,15 @@ class AgentResourceManagerFacade:
                 "mcp_server_refs": sorted(mcp_index.keys()),
                 "skill_names": sorted(skill_index.keys()),
             },
+            "skill_discovery": self._resource_service.list_discovered_skills(),
             "workspace_root_resolved": (
                 str(self._resource_service.resolve_workspace_root_path(registry.workspace_root.root_path))
                 if registry.workspace_root.root_path
                 else ""
             ),
+            "config_files": {
+                "mcp_import": str(self._mcp_import_config.file_path),
+            },
         }
 
     def save_workspace_root(self, payload: dict[str, object]) -> dict[str, object]:
@@ -226,6 +273,26 @@ class AgentResourceManagerFacade:
     def save_skill(self, skill_name: str, payload: dict[str, object]) -> dict[str, object]:
         saved = self._resource_service.save_skill({**payload, "skill_name": skill_name})
         return asdict(saved)
+
+    def delete_skill(self, skill_name: str) -> dict[str, object]:
+        self._resource_service.delete_skill(skill_name)
+        return {"deleted": True, "skill_name": skill_name}
+
+    def save_skill_source(self, source_ref: str, payload: dict[str, object]) -> dict[str, object]:
+        saved = self._resource_service.save_skill_source({**payload, "source_ref": source_ref})
+        return asdict(saved)
+
+    def delete_skill_source(self, source_ref: str) -> dict[str, object]:
+        self._resource_service.delete_skill_source(source_ref)
+        return {"deleted": True, "source_ref": source_ref}
+
+    def sync_skills(self) -> dict[str, object]:
+        saved = self._resource_service.sync_skills_from_sources()
+        discovery = self._resource_service.list_discovered_skills()
+        return {
+            "saved_skills": [asdict(item) for item in saved],
+            "discovery": discovery,
+        }
 
     def save_workspace(self, agent_id: str, payload: dict[str, object]) -> dict[str, object]:
         workspace = self._resource_service.save_workspace({**payload, "agent_id": agent_id})
@@ -318,6 +385,10 @@ class AgentResourceManagerFacade:
                 ),
             },
         }
+
+    def _sync_mcp_import_config(self) -> None:
+        for payload in self._mcp_import_config.list_mcp_servers():
+            self._resource_service.save_mcp_server(payload)
 
     def _serialize_workspace(self, workspace) -> dict[str, object] | None:
         if workspace is None:

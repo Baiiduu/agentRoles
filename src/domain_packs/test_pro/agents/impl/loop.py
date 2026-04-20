@@ -15,7 +15,14 @@ from .llm_loop import (
 )
 from .policy import _apply_policy_to_decision
 from .shared import _NormalizedTestProInput, _artifact_type, _emit_progress, _normalize_input, _primary_memory_scope
-from .state import _build_working_summary, _enrich_final_reply, _infer_current_phase, _task_state, _validation_plan
+from .state import (
+    _build_working_summary,
+    _enrich_final_reply,
+    _infer_current_phase,
+    _task_memory_snapshot,
+    _task_state,
+    _validation_plan,
+)
 
 
 class TestProChatImplementation:
@@ -333,6 +340,15 @@ class TestProChatImplementation:
             latest_decision=latest_decision,
             current_phase=current_phase,
         )
+        task_memory = _task_memory_snapshot(
+            normalized_input=normalized_input,
+            execution_trace=execution_trace,
+            tool_context=tool_context,
+            latest_decision=latest_decision,
+            current_phase=current_phase,
+            final_summary=str(final_summary or final_reply),
+            loop_stop_reason=loop_stop_reason,
+        )
         output = {
             "reply": final_reply,
             "summary": final_summary,
@@ -358,6 +374,7 @@ class TestProChatImplementation:
             },
             "memory_context": normalized_input.memory_context,
             "recommended_memory_scope": _primary_memory_scope(context),
+            "task_memory": task_memory,
             "llm_context": {"decision_steps": decision_contexts},
         }
         output["memory_write_ids"] = _persist_memory_snapshot(
@@ -365,6 +382,8 @@ class TestProChatImplementation:
             normalized_input=normalized_input,
             execution_trace=execution_trace,
             tool_context=tool_context,
+            latest_decision=latest_decision,
+            current_phase=current_phase,
             final_reply=str(final_reply),
             final_summary=final_summary,
             loop_stop_reason=loop_stop_reason,

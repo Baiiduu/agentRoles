@@ -1,17 +1,24 @@
 import { useState } from "react";
 import type {
+  DiscoveredSkillDto,
   RegisteredMCPServerDto,
   RegisteredSkillDto,
+  SkillDiscoverySourceDto,
 } from "../types/agentResourceManager";
 
 interface ResourceRegistryPanelProps {
   mcpServers: RegisteredMCPServerDto[];
   skills: RegisteredSkillDto[];
+  discoveredSkills: DiscoveredSkillDto[];
+  discoverySources: SkillDiscoverySourceDto[];
+  skillSources: SkillDiscoverySourceDto[];
   onSaveMcpServer: (payload: RegisteredMCPServerDto) => Promise<void>;
   onAuthenticateMcpServer: (serverRef: string) => Promise<void>;
   onTestMcpServer: (serverRef: string) => Promise<void>;
   onDiscoverMcpTools: (serverRef: string) => Promise<void>;
   onSaveSkill: (payload: RegisteredSkillDto) => Promise<void>;
+  onSaveSkillSource: (payload: SkillDiscoverySourceDto) => Promise<void>;
+  onSyncSkills: () => Promise<void>;
 }
 
 const emptyMcp: RegisteredMCPServerDto = {
@@ -57,6 +64,15 @@ const emptySkill: RegisteredSkillDto = {
   notes: "",
 };
 
+const emptySkillSource: SkillDiscoverySourceDto = {
+  source_ref: "",
+  source_kind: "custom",
+  root_path: "",
+  label: "",
+  enabled: true,
+  notes: "",
+};
+
 function splitCsv(value: string) {
   return value
     .split(",")
@@ -85,14 +101,20 @@ function formatEnvLines(value: Record<string, string>) {
 export function ResourceRegistryPanel({
   mcpServers,
   skills,
+  discoveredSkills,
+  discoverySources,
+  skillSources,
   onSaveMcpServer,
   onAuthenticateMcpServer,
   onTestMcpServer,
   onDiscoverMcpTools,
   onSaveSkill,
+  onSaveSkillSource,
+  onSyncSkills,
 }: ResourceRegistryPanelProps) {
   const [mcpForm, setMcpForm] = useState(emptyMcp);
   const [skillForm, setSkillForm] = useState(emptySkill);
+  const [skillSourceForm, setSkillSourceForm] = useState(emptySkillSource);
 
   return (
     <section className="panel">
@@ -311,7 +333,108 @@ export function ResourceRegistryPanel({
       </div>
 
       <div className="detail-card">
+        <strong>Register Skill Source</strong>
+        <div className="grid-two" style={{ marginTop: 12 }}>
+          <div className="field">
+            <label htmlFor="skill-source-ref">Source Ref</label>
+            <input
+              id="skill-source-ref"
+              value={skillSourceForm.source_ref || ""}
+              onChange={(event) =>
+                setSkillSourceForm((current) => ({ ...current, source_ref: event.target.value }))
+              }
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="skill-source-kind">Source Kind</label>
+            <select
+              id="skill-source-kind"
+              value={skillSourceForm.source_kind}
+              onChange={(event) =>
+                setSkillSourceForm((current) => ({ ...current, source_kind: event.target.value }))
+              }
+            >
+              <option value="custom">custom</option>
+              <option value="project">project</option>
+              <option value="codex_home">codex_home</option>
+            </select>
+          </div>
+        </div>
+        <div className="grid-two">
+          <div className="field">
+            <label htmlFor="skill-source-root">Root Path</label>
+            <input
+              id="skill-source-root"
+              value={skillSourceForm.root_path}
+              onChange={(event) =>
+                setSkillSourceForm((current) => ({ ...current, root_path: event.target.value }))
+              }
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="skill-source-label">Label</label>
+            <input
+              id="skill-source-label"
+              value={skillSourceForm.label}
+              onChange={(event) =>
+                setSkillSourceForm((current) => ({ ...current, label: event.target.value }))
+              }
+            />
+          </div>
+        </div>
+        <div className="field">
+          <label htmlFor="skill-source-notes">Notes</label>
+          <textarea
+            id="skill-source-notes"
+            value={skillSourceForm.notes || ""}
+            onChange={(event) =>
+              setSkillSourceForm((current) => ({ ...current, notes: event.target.value }))
+            }
+          />
+        </div>
+        <button
+          type="button"
+          className="primary-button"
+          onClick={async () => {
+            await onSaveSkillSource(skillSourceForm);
+            setSkillSourceForm(emptySkillSource);
+          }}
+          disabled={!skillSourceForm.source_ref?.trim() || !skillSourceForm.root_path.trim()}
+        >
+          Save Skill Source
+        </button>
+        <div className="catalog-grid" style={{ marginTop: 14 }}>
+          {skillSources.map((item) => (
+            <article key={`${item.source_ref}:${item.root_path}`} className="catalog-card">
+              <strong>{item.label}</strong>
+              <span>{item.source_ref}</span>
+              <p>{item.root_path}</p>
+              <p>Kind: {item.source_kind}</p>
+            </article>
+          ))}
+        </div>
+      </div>
+
+      <div className="detail-card">
         <strong>Register Skill</strong>
+        <div className="action-row" style={{ marginBottom: 12 }}>
+          <button type="button" className="secondary-button" onClick={() => onSyncSkills()}>
+            Sync Skills From Sources
+          </button>
+        </div>
+        {discoverySources.length ? (
+          <div className="catalog-grid" style={{ marginBottom: 14 }}>
+            {discoverySources.map((source) => (
+              <article key={`${source.source_kind}:${source.root_path}`} className="catalog-card">
+                <strong>{source.label}</strong>
+                <span>{source.source_kind}</span>
+                <p>{source.root_path}</p>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p>No skill sources discovered yet.</p>
+        )}
         <div className="field">
           <label htmlFor="skill-name">Skill Name</label>
           <input
@@ -385,6 +508,20 @@ export function ResourceRegistryPanel({
               <strong>{item.name}</strong>
               <span>{item.skill_name}</span>
               <p>{item.description || "No description"}</p>
+              {item.source_kind ? <p>Source: {item.source_kind}</p> : null}
+              {item.prompt_file ? <p>Prompt: {item.prompt_file}</p> : null}
+            </article>
+          ))}
+        </div>
+        <strong style={{ display: "block", marginTop: 18 }}>Discovered Skills</strong>
+        <div className="catalog-grid" style={{ marginTop: 14 }}>
+          {discoveredSkills.map((item) => (
+            <article key={`${item.skill_name}:${item.prompt_file}`} className="catalog-card">
+              <strong>{item.name}</strong>
+              <span>{item.skill_name}</span>
+              <p>{item.description || "No description"}</p>
+              <p>Source: {item.source_kind}</p>
+              <p>Prompt: {item.prompt_file}</p>
             </article>
           ))}
         </div>

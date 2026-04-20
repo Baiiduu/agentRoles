@@ -25,7 +25,12 @@ from core.observability import RuntimeQueryService
 from core.runtime import RuntimeService
 from core.state.models import NodeType
 from core.stores import InMemoryCheckpointStore, InMemoryEventStore, InMemoryStateStore
-from core.tools import InMemoryToolRegistry, ObservedToolInvoker, RoutingToolInvoker
+from core.tools import (
+    InMemoryToolRegistry,
+    ObservedToolInvoker,
+    PolicyAwareToolInvoker,
+    RoutingToolInvoker,
+)
 from core.workflow import InMemoryWorkflowProvider
 from domain_packs import (
     get_registered_agent_descriptors,
@@ -46,6 +51,8 @@ from application.agent_admin.agent_config_service import AgentConfigFacade
 from application.casework.case_workspace_service import CaseWorkspaceFacade
 from application.playground.agent_playground_service import AgentPlaygroundFacade
 from application.resource_manager.agent_resource_manager_service import AgentResourceManagerFacade
+from application.runtime.skill_policy_engine import SkillRuntimePolicyEngine
+from application.software_supply_chain.ui_settings import SoftwareSupplyChainUiSettingsFacade
 
 
 def _json_ready(value: Any) -> Any:
@@ -82,6 +89,7 @@ class ProjectConsoleService:
         )
         self._agent_resource_manager = AgentResourceManagerFacade()
         self._case_workspace = CaseWorkspaceFacade()
+        self._software_supply_chain_ui_settings = SoftwareSupplyChainUiSettingsFacade()
 
     def list_agent_configs(self) -> dict[str, object]:
         return self._agent_config.list_configs()
@@ -144,6 +152,22 @@ class ProjectConsoleService:
         payload: dict[str, object],
     ) -> dict[str, object]:
         return self._agent_resource_manager.save_skill(skill_name, payload)
+
+    def delete_registered_skill(self, skill_name: str) -> dict[str, object]:
+        return self._agent_resource_manager.delete_skill(skill_name)
+
+    def save_registered_skill_source(
+        self,
+        source_ref: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        return self._agent_resource_manager.save_skill_source(source_ref, payload)
+
+    def delete_registered_skill_source(self, source_ref: str) -> dict[str, object]:
+        return self._agent_resource_manager.delete_skill_source(source_ref)
+
+    def sync_registered_skills(self) -> dict[str, object]:
+        return self._agent_resource_manager.sync_skills()
 
     def save_agent_workspace(
         self,
@@ -213,6 +237,15 @@ class ProjectConsoleService:
 
     def get_case_coordination(self, case_id: str) -> dict[str, object]:
         return self._case_workspace.get_coordination(case_id)
+
+    def get_software_supply_chain_ui_settings(self) -> dict[str, object]:
+        return self._software_supply_chain_ui_settings.get_settings()
+
+    def save_software_supply_chain_ui_settings(
+        self,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        return self._software_supply_chain_ui_settings.save_settings(payload)
 
     def get_overview(self) -> dict[str, object]:
         llm_bundle = EnvironmentProviderConfigLoader().load()
@@ -665,10 +698,13 @@ class ProjectConsoleService:
             state_store=InMemoryStateStore(),
             event_store=InMemoryEventStore(),
             checkpoint_store=InMemoryCheckpointStore(),
+            policy_engine=SkillRuntimePolicyEngine(),
             tool_invoker=ObservedToolInvoker(
-                RoutingToolInvoker(
-                    registry=tool_registry,
-                    adapters=[build_education_function_tool_adapter()],
+                PolicyAwareToolInvoker(
+                    RoutingToolInvoker(
+                        registry=tool_registry,
+                        adapters=[build_education_function_tool_adapter()],
+                    )
                 )
             ),
             llm_invoker=self._build_llm_invoker(),

@@ -495,6 +495,178 @@ def write_file_handler(
     )
 
 
+def preview_structured_edit_handler(
+    tool_input: dict[str, object],
+    context: ExecutionContext,
+) -> ToolInvocationResult:
+    target_path = string_value(tool_input, "path")
+    edit_kind = string_value(tool_input, "edit_kind")
+    if not target_path:
+        return tool_error("FS_PATH_REQUIRED", "preview_structured_edit requires path")
+    if edit_kind not in {"replace", "insert"}:
+        return tool_error("FS_EDIT_KIND_REQUIRED", "preview_structured_edit edit_kind must be 'replace' or 'insert'")
+
+    loaded = _load_text_file(context, target_path, operation_name="preview_structured_edit", allow_missing=False)
+    if loaded.error is not None:
+        return loaded.error
+    assert loaded.path is not None
+
+    expected_occurrences = int_value(tool_input, "expected_occurrences")
+    if edit_kind == "replace":
+        needle = string_value(tool_input, "old_text")
+        if needle is None or not needle:
+            return tool_error("FS_OLD_TEXT_REQUIRED", "preview_structured_edit replace requires old_text")
+        match_count = loaded.content.count(needle)
+        first_offset = loaded.content.find(needle)
+        applicable, ambiguous, reason = _structured_edit_preview_status(
+            match_count=match_count,
+            expected_occurrences=expected_occurrences,
+            missing_reason="old_text was not found in file",
+            ambiguous_reason="multiple matches found; provide expected_occurrences or use replace_all",
+        )
+    else:
+        needle = string_value(tool_input, "anchor_text")
+        if needle is None or not needle:
+            return tool_error("FS_ANCHOR_REQUIRED", "preview_structured_edit insert requires anchor_text")
+        position = string_value(tool_input, "position")
+        if position not in {"before", "after"}:
+            return tool_error("FS_INSERT_POSITION_REQUIRED", "preview_structured_edit insert requires position")
+        match_count = loaded.content.count(needle)
+        first_offset = loaded.content.find(needle)
+        applicable, ambiguous, reason = _structured_edit_preview_status(
+            match_count=match_count,
+            expected_occurrences=expected_occurrences,
+            missing_reason="anchor_text was not found in file",
+            ambiguous_reason="multiple anchors found; provide expected_occurrences to confirm the target",
+        )
+
+    return ToolInvocationResult(
+        success=True,
+        output={
+            "path": loaded.display_path,
+            "edit_kind": edit_kind,
+            "applicable": applicable,
+            "match_count": match_count,
+            "ambiguous": ambiguous,
+            "first_match_line": _line_number_for_offset(loaded.content, first_offset),
+            "reason": reason,
+            "workspace_root": str(loaded.root),
+        },
+    )
+
+
+def replace_in_file_handler(
+    tool_input: dict[str, object],
+    context: ExecutionContext,
+) -> ToolInvocationResult:
+    target_path = string_value(tool_input, "path")
+    old_text = string_value(tool_input, "old_text")
+    new_text = string_value(tool_input, "new_text")
+    if not target_path:
+        return tool_error("FS_PATH_REQUIRED", "replace_in_file requires path")
+    if old_text is None or not old_text:
+        return tool_error("FS_OLD_TEXT_REQUIRED", "replace_in_file requires old_text")
+    if new_text is None:
+        return tool_error("FS_NEW_TEXT_REQUIRED", "replace_in_file requires new_text")
+
+    loaded = _load_text_file(context, target_path, operation_name="replace_in_file", allow_missing=False)
+    if loaded.error is not None:
+        return loaded.error
+    assert loaded.path is not None
+
+    match_count = loaded.content.count(old_text)
+    if match_count == 0:
+        return tool_error("FS_REPLACE_TARGET_NOT_FOUND", "old_text was not found in file")
+
+    expected_occurrences = int_value(tool_input, "expected_occurrences")
+    replace_all = bool(tool_input.get("replace_all", False))
+    if expected_occurrences is not None and expected_occurrences < 1:
+        return tool_error("FS_REPLACE_INVALID_EXPECTATION", "expected_occurrences must be at least 1")
+    if expected_occurrences is not None and match_count != expected_occurrences:
+        return tool_error(
+            "FS_REPLACE_EXPECTATION_MISMATCH",
+            f"expected {expected_occurrences} occurrences but found {match_count}",
+        )
+    if not replace_all and expected_occurrences is None and match_count > 1:
+        return tool_error(
+            "FS_REPLACE_AMBIGUOUS",
+            "multiple matches found; provide expected_occurrences or set replace_all=true",
+        )
+
+    first_offset = loaded.content.find(old_text)
+    updated_content = loaded.content.replace(old_text, new_text, -1 if replace_all else 1)
+    change_count = match_count if replace_all else 1
+    loaded.path.write_text(updated_content, encoding="utf-8")
+    return ToolInvocationResult(
+        success=True,
+        output={
+            "path": loaded.display_path,
+            "applied": True,
+            "change_count": change_count,
+            "match_count": match_count,
+            "first_match_line": _line_number_for_offset(loaded.content, first_offset),
+            "workspace_root": str(loaded.root),
+        },
+    )
+
+
+def insert_in_file_handler(
+    tool_input: dict[str, object],
+    context: ExecutionContext,
+) -> ToolInvocationResult:
+    target_path = string_value(tool_input, "path")
+    anchor_text = string_value(tool_input, "anchor_text")
+    insert_text = string_value(tool_input, "insert_text")
+    position = string_value(tool_input, "position")
+    if not target_path:
+        return tool_error("FS_PATH_REQUIRED", "insert_in_file requires path")
+    if anchor_text is None or not anchor_text:
+        return tool_error("FS_ANCHOR_REQUIRED", "insert_in_file requires anchor_text")
+    if insert_text is None or not insert_text:
+        return tool_error("FS_INSERT_TEXT_REQUIRED", "insert_in_file requires insert_text")
+    if position not in {"before", "after"}:
+        return tool_error("FS_INSERT_POSITION_REQUIRED", "insert_in_file position must be 'before' or 'after'")
+
+    loaded = _load_text_file(context, target_path, operation_name="insert_in_file", allow_missing=False)
+    if loaded.error is not None:
+        return loaded.error
+    assert loaded.path is not None
+
+    match_count = loaded.content.count(anchor_text)
+    if match_count == 0:
+        return tool_error("FS_INSERT_ANCHOR_NOT_FOUND", "anchor_text was not found in file")
+
+    expected_occurrences = int_value(tool_input, "expected_occurrences")
+    if expected_occurrences is not None and expected_occurrences < 1:
+        return tool_error("FS_INSERT_INVALID_EXPECTATION", "expected_occurrences must be at least 1")
+    if expected_occurrences is not None and match_count != expected_occurrences:
+        return tool_error(
+            "FS_INSERT_EXPECTATION_MISMATCH",
+            f"expected {expected_occurrences} occurrences but found {match_count}",
+        )
+    if expected_occurrences is None and match_count > 1:
+        return tool_error(
+            "FS_INSERT_AMBIGUOUS",
+            "multiple anchors found; provide expected_occurrences to confirm the target",
+        )
+
+    anchor_offset = loaded.content.find(anchor_text)
+    insert_offset = anchor_offset if position == "before" else anchor_offset + len(anchor_text)
+    updated_content = loaded.content[:insert_offset] + insert_text + loaded.content[insert_offset:]
+    loaded.path.write_text(updated_content, encoding="utf-8")
+    return ToolInvocationResult(
+        success=True,
+        output={
+            "path": loaded.display_path,
+            "applied": True,
+            "change_count": 1,
+            "match_count": match_count,
+            "anchor_line": _line_number_for_offset(loaded.content, anchor_offset),
+            "workspace_root": str(loaded.root),
+        },
+    )
+
+
 def apply_patch_handler(
     tool_input: dict[str, object],
     context: ExecutionContext,
@@ -819,6 +991,30 @@ def _first_matching_line(
         if needle in haystack:
             return index, line.strip()
     return None, ""
+
+
+def _line_number_for_offset(content: str, offset: int) -> int | None:
+    if offset < 0:
+        return None
+    return content.count("\n", 0, offset) + 1
+
+
+def _structured_edit_preview_status(
+    *,
+    match_count: int,
+    expected_occurrences: int | None,
+    missing_reason: str,
+    ambiguous_reason: str,
+) -> tuple[bool, bool, str]:
+    if match_count == 0:
+        return False, False, missing_reason
+    if expected_occurrences is not None and expected_occurrences < 1:
+        return False, False, "expected_occurrences must be at least 1"
+    if expected_occurrences is not None and match_count != expected_occurrences:
+        return False, False, f"expected {expected_occurrences} occurrences but found {match_count}"
+    if expected_occurrences is None and match_count > 1:
+        return False, True, ambiguous_reason
+    return True, False, "structured edit is applicable"
 
 
 def _language_for_path(path: Path) -> str:

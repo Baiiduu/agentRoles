@@ -75,6 +75,15 @@ def _build_working_summary(
     memory_lines = _summarize_memory_context(normalized_input.memory_context)
     if memory_lines:
         known_facts.extend(f"Memory: {line}" for line in memory_lines)
+    task_memory_target_files = normalized_input.task_memory.get("target_files")
+    if isinstance(task_memory_target_files, list) and task_memory_target_files:
+        known_facts.append("Remembered target files: " + ", ".join(str(item) for item in task_memory_target_files[:3]))
+    remembered_facts = normalized_input.task_memory.get("confirmed_facts")
+    if isinstance(remembered_facts, list):
+        for item in remembered_facts[:2]:
+            text = str(item).strip()
+            if text:
+                known_facts.append("Task memory: " + text)
     changed_hints = _changed_files_hints(normalized_input.raw_selected_input)
     if changed_hints:
         known_facts.append("Changed file hints: " + ", ".join(changed_hints))
@@ -90,6 +99,9 @@ def _build_working_summary(
         "report": "Summarize findings, changes, validation status, and remaining risks.",
     }
     next_focus = str(latest_decision.get("next_step", "")).strip() if latest_decision else ""
+    if not next_focus:
+        remembered_next = normalized_input.task_memory.get("pending_next_step")
+        next_focus = remembered_next.strip() if isinstance(remembered_next, str) else ""
     next_focus = next_focus or pending_by_phase[current_phase]
     return {
         "current_phase": current_phase,
@@ -285,10 +297,79 @@ def _task_state(
         "tool_result_count": len(tool_context),
         "latest_decision_type": str(latest_decision.get("decision_type", "")).strip() if latest_decision else "",
         "latest_task_kind": str(latest_decision.get("task_kind", "")).strip() if latest_decision else "",
+        "task_memory": deepcopy(normalized_input.task_memory),
         "edit_readiness": _edit_readiness_status(
             normalized_input=normalized_input,
             execution_trace=execution_trace,
             tool_context=tool_context,
             latest_decision=latest_decision,
         ),
+    }
+
+
+def _task_memory_snapshot(
+    *,
+    normalized_input: _NormalizedTestProInput,
+    execution_trace: list[dict[str, object]],
+    tool_context: dict[str, object],
+    latest_decision: dict[str, object] | None,
+    current_phase: str,
+    final_summary: str,
+    loop_stop_reason: str,
+) -> dict[str, object]:
+    validation_plan = _validation_plan(normalized_input, execution_trace)
+    edit_readiness = _edit_readiness_status(
+        normalized_input=normalized_input,
+        execution_trace=execution_trace,
+        tool_context=tool_context,
+        latest_decision=latest_decision,
+    )
+    target_files: list[str] = []
+    for item in normalized_input.task_memory.get("target_files", []):
+        text = str(item).strip()
+        if text and text not in target_files:
+            target_files.append(text)
+    for item in _changed_files_hints(normalized_input.raw_selected_input):
+        if item not in target_files:
+            target_files.append(item)
+    if edit_readiness.get("target_path"):
+        target_path = str(edit_readiness["target_path"]).strip()
+        if target_path and target_path not in target_files:
+            target_files.append(target_path)
+    confirmed_facts: list[str] = []
+    for item in normalized_input.task_memory.get("confirmed_facts", []):
+        text = str(item).strip()
+        if text and text not in confirmed_facts:
+            confirmed_facts.append(text)
+    if target_files:
+        confirmed_facts.append("Target files: " + ", ".join(target_files[:3]))
+    if tool_context:
+        confirmed_facts.append(f"Collected tool results: {len(tool_context)}")
+    if validation_plan["status"]:
+        confirmed_facts.append(f"Validation status: {validation_plan['status']}")
+    objective = normalized_input.task_memory.get("objective")
+    if not isinstance(objective, str) or not objective.strip():
+        task_goal = normalized_input.raw_selected_input.get("task_goal")
+        objective = task_goal.strip() if isinstance(task_goal, str) and task_goal.strip() else normalized_input.message
+    pending_next_step = ""
+    if latest_decision is not None:
+        pending_next_step = str(latest_decision.get("next_step", "")).strip()
+    if not pending_next_step:
+        pending_next_step = "Run the next coding step based on the latest repository evidence."
+    return {
+        "objective": objective.strip(),
+        "acceptance_criteria": deepcopy(normalized_input.raw_selected_input.get("acceptance_criteria")),
+        "target_files": target_files,
+        "confirmed_facts": confirmed_facts[:6],
+        "pending_next_step": pending_next_step,
+        "current_phase": current_phase,
+        "last_validation_status": validation_plan["status"],
+        "last_summary": final_summary,
+        "loop_stop_reason": loop_stop_reason,
+        "edit_intent": {
+            "edit_requested": bool(edit_readiness.get("edit_requested")),
+            "ready": bool(edit_readiness.get("ready")),
+            "target_path": edit_readiness.get("target_path"),
+            "missing_requirements": deepcopy(edit_readiness.get("missing_requirements", [])),
+        },
     }

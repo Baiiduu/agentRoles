@@ -9,6 +9,7 @@ from core.agents import AgentImplementation
 from core.contracts import ExecutionContext, NodeExecutionResult
 from core.llm import LLMMessage, LLMMessageRole, LLMRequest, LLMResponseFormatKind
 from core.state.models import NodeStatus, PolicyDecisionRecord, SideEffectRecord
+from application.runtime.skill_prompt_service import build_skill_prompt_appendix
 
 from domain_packs.education.tools.constants import EDUCATION_TOOL_REFS
 
@@ -113,6 +114,12 @@ def _build_agent_system_prompt(
             )
         if resource_lines:
             parts.append("Runtime resources for this session:\n" + "\n".join(resource_lines))
+    skill_appendix = build_skill_prompt_appendix(
+        runtime_resources,
+        deepcopy(dict(context.selected_input)),
+    )
+    if skill_appendix:
+        parts.append(skill_appendix)
     parts.append(
         "Return a valid JSON object only. Include all required keys exactly: "
         + ", ".join(output_keys)
@@ -220,6 +227,12 @@ def _build_chat_system_prompt(context: ExecutionContext, *, role_summary: str) -
         parts.append(instruction_appendix)
     if quality_bar:
         parts.append(f"Quality bar: {quality_bar}")
+    skill_appendix = build_skill_prompt_appendix(
+        _runtime_resource_context(context),
+        deepcopy(dict(context.selected_input)),
+    )
+    if skill_appendix:
+        parts.append(skill_appendix)
     return "\n\n".join(part for part in parts if part)
 
 

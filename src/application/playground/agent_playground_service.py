@@ -16,7 +16,12 @@ from core.llm import (
     RoutingLLMInvoker,
 )
 from core.stores import InMemoryCheckpointStore, InMemoryEventStore, InMemoryStateStore
-from core.tools import InMemoryToolRegistry, ObservedToolInvoker, RoutingToolInvoker
+from core.tools import (
+    InMemoryToolRegistry,
+    ObservedToolInvoker,
+    PolicyAwareToolInvoker,
+    RoutingToolInvoker,
+)
 from domain_packs import (
     get_registered_agent_implementations,
     get_registered_tool_descriptors,
@@ -28,6 +33,7 @@ from domain_packs.operations import build_operations_function_tool_adapter
 from application.casework.case_workspace_service import CaseWorkspaceFacade
 from application.resource_manager.agent_resource_manager_service import AgentResourceManagerFacade
 from application.runtime.agent_runtime_context_service import AgentRuntimeContextFacade
+from application.runtime.skill_policy_engine import SkillRuntimePolicyEngine
 from infrastructure.mcp.mcp_runtime_service import MCPRuntimeFactory, build_mcp_server_catalog
 from infrastructure.persistence import (
     SQLiteAgentChatHistoryRepository,
@@ -386,14 +392,17 @@ class AgentPlaygroundFacade:
             state_store=InMemoryStateStore(),
             event_store=InMemoryEventStore(),
             checkpoint_store=InMemoryCheckpointStore(),
+            policy_engine=SkillRuntimePolicyEngine(),
             tool_invoker=ObservedToolInvoker(
-                RoutingToolInvoker(
-                    registry=tool_registry,
-                    adapters=[
-                        build_education_function_tool_adapter(),
-                        build_operations_function_tool_adapter(),
-                        mcp_adapter,
-                    ],
+                PolicyAwareToolInvoker(
+                    RoutingToolInvoker(
+                        registry=tool_registry,
+                        adapters=[
+                            build_education_function_tool_adapter(),
+                            build_operations_function_tool_adapter(),
+                            mcp_adapter,
+                        ],
+                    )
                 )
             ),
             llm_invoker=self._build_llm_invoker(),

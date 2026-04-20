@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 
 from domain_packs.operations import OPERATION_TOOL_REFS
 
@@ -35,6 +36,87 @@ def _should_avoid_shell(*, suggested_tool_ref: str, message: str, available_tool
     return read_like and any(tool_ref in available_tool_refs for tool_ref in _READ_SEARCH_TOOL_REFS)
 
 
+def _extract_replace_directive(message: str) -> tuple[str, str] | None:
+    lowered = message.lower()
+    if not any(keyword in lowered for keyword in ["replace", "with", "替换", "改成", "改为"]):
+        return None
+    quoted = re.findall(r"['\"]([^'\"]+)['\"]", message)
+    if len(quoted) >= 2:
+        return quoted[0], quoted[1]
+    return None
+
+
+def _extract_insert_directive(message: str) -> tuple[str, str, str] | None:
+    lowered = message.lower()
+    if not any(keyword in lowered for keyword in ["insert", "before", "after", "在", "前插入", "后插入"]):
+        return None
+    quoted = re.findall(r"['\"]([^'\"]+)['\"]", message)
+    if len(quoted) < 2:
+        return None
+    if any(keyword in lowered for keyword in [" before ", "前"]):
+        return quoted[1], quoted[0], "before"
+    if any(keyword in lowered for keyword in [" after ", "后"]):
+        return quoted[1], quoted[0], "after"
+    return None
+
+
+def _matching_structured_edit_preview(
+    *,
+    tool_context: dict[str, object],
+    path: str,
+    edit_kind: str,
+    expected_occurrences: int | None,
+    old_text: str | None = None,
+    anchor_text: str | None = None,
+    position: str | None = None,
+) -> dict[str, object] | None:
+    for item in tool_context.values():
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("tool_ref", "")).strip() != OPERATION_TOOL_REFS["preview_structured_edit"]:
+            continue
+        tool_input = item.get("tool_input")
+        tool_output = item.get("tool_output")
+        if not isinstance(tool_input, dict) or not isinstance(tool_output, dict):
+            continue
+        if str(tool_input.get("path", "")).strip() != path:
+            continue
+        if str(tool_input.get("edit_kind", "")).strip() != edit_kind:
+            continue
+        if expected_occurrences is not None and tool_input.get("expected_occurrences") != expected_occurrences:
+            continue
+        if old_text is not None and str(tool_input.get("old_text", "")) != old_text:
+            continue
+        if anchor_text is not None and str(tool_input.get("anchor_text", "")) != anchor_text:
+            continue
+        if position is not None and str(tool_input.get("position", "")) != position:
+            continue
+        return tool_output
+    return None
+
+
+def _remembered_target_files(normalized_input: _NormalizedTestProInput) -> list[str]:
+    value = normalized_input.task_memory.get("target_files")
+    if not isinstance(value, list):
+        return []
+    items: list[str] = []
+    for item in value:
+        text = str(item).strip()
+        if text and text not in items:
+            items.append(text)
+    return items
+
+
+def _remembered_target_path(normalized_input: _NormalizedTestProInput) -> str | None:
+    remembered = _remembered_target_files(normalized_input)
+    return remembered[0] if remembered else None
+
+
+def _has_continue_intent(message: str) -> bool:
+    lowered = message.lower()
+    return any(token in lowered for token in ["continue", "继续", "接着", "继续做", "go on"])
+
+
 def _preferred_tool_decision(
     *,
     normalized_input: _NormalizedTestProInput,
@@ -46,8 +128,11 @@ def _preferred_tool_decision(
     candidate_path = _extract_candidate_path(message)
     search_pattern = _extract_search_pattern(message)
     symbol_candidate = search_pattern or _extract_symbol_candidate(message)
+    replace_directive = _extract_replace_directive(message)
+    insert_directive = _extract_insert_directive(message)
     start_line, end_line = _extract_line_range(message)
     changed_hints = _changed_files_hints(normalized_input.raw_selected_input)
+    remembered_target_path = _remembered_target_path(normalized_input)
     is_edit_request = _is_edit_request(lowered)
 
     if _is_git_status_request(lowered) and OPERATION_TOOL_REFS["git_status"] in available:
@@ -76,6 +161,66 @@ def _preferred_tool_decision(
         return OPERATION_TOOL_REFS["ripgrep_search"], {"pattern": search_pattern, "limit": 20}, "A repository-wide search request should prefer ripgrep-style search."
     if any(word in lowered for word in ["list", "files", "file tree", "目录", "结构"]) and OPERATION_TOOL_REFS["list_files"] in available:
         return OPERATION_TOOL_REFS["list_files"], {"path": ".", "recursive": True, "limit": 200}, "A structure inspection request should prefer listing files first."
+    if (
+        is_edit_request
+        and candidate_path
+        and replace_directive is not None
+        and _has_tool_result_for_path(tool_context, candidate_path)
+        and OPERATION_TOOL_REFS["replace_in_file"] in available
+    ):
+        old_text, new_text = replace_directive
+        return (
+            OPERATION_TOOL_REFS["replace_in_file"],
+            {
+                "path": candidate_path,
+                "old_text": old_text,
+                "new_text": new_text,
+                "expected_occurrences": 1,
+            },
+            "A precise edit request with explicit old/new text should prefer exact replace over raw patch.",
+        )
+    if (
+        is_edit_request
+        and candidate_path
+        and insert_directive is not None
+        and _has_tool_result_for_path(tool_context, candidate_path)
+        and OPERATION_TOOL_REFS["insert_in_file"] in available
+    ):
+        anchor_text, insert_text, position = insert_directive
+        return (
+            OPERATION_TOOL_REFS["insert_in_file"],
+            {
+                "path": candidate_path,
+                "anchor_text": anchor_text,
+                "insert_text": insert_text,
+                "position": position,
+                "expected_occurrences": 1,
+            },
+            "A precise insertion request with an explicit anchor should prefer anchored insert over raw patch.",
+        )
+    if (
+        is_edit_request
+        and not candidate_path
+        and remembered_target_path
+        and not _has_tool_result_for_path(tool_context, remembered_target_path)
+        and OPERATION_TOOL_REFS["read_file"] in available
+    ):
+        return (
+            OPERATION_TOOL_REFS["read_file"],
+            {"path": remembered_target_path},
+            "Task memory already identifies a likely target file, so read it before exploring the whole repository again.",
+        )
+    if (
+        _has_continue_intent(message)
+        and remembered_target_path
+        and not _has_tool_result_for_path(tool_context, remembered_target_path)
+        and OPERATION_TOOL_REFS["read_file"] in available
+    ):
+        return (
+            OPERATION_TOOL_REFS["read_file"],
+            {"path": remembered_target_path},
+            "Task memory remembers the active target file, so a continue request should resume from that file first.",
+        )
     if is_edit_request and candidate_path and not _has_tool_result_for_path(tool_context, candidate_path) and OPERATION_TOOL_REFS["read_file"] in available:
         return OPERATION_TOOL_REFS["read_file"], {"path": candidate_path}, "Before patching, read the target file to gather context."
     if is_edit_request and not candidate_path and changed_hints:
@@ -123,6 +268,89 @@ def _apply_policy_to_decision(
             adjusted["suggested_tool_ref"] = tool_ref
             adjusted["suggested_tool_input"] = tool_input
             reasons.append("shell.run was downgraded because a more specific tool is available. " + reason)
+    current_tool_ref = str(adjusted.get("suggested_tool_ref", "")).strip()
+    remembered_target_path = _remembered_target_path(normalized_input)
+    if (
+        str(adjusted.get("decision_type")) == "tool_call"
+        and current_tool_ref in _BROAD_EXPLORATION_TOOL_REFS
+        and remembered_target_path
+        and not _has_tool_result_for_path(tool_context, remembered_target_path)
+        and OPERATION_TOOL_REFS["read_file"] in normalized_input.available_tool_refs
+    ):
+        adjusted["suggested_tool_ref"] = OPERATION_TOOL_REFS["read_file"]
+        adjusted["suggested_tool_input"] = {"path": remembered_target_path}
+        reasons.append("Task memory redirected broad exploration back to the remembered target file.")
+    current_tool_ref = str(adjusted.get("suggested_tool_ref", "")).strip()
+    if (
+        str(adjusted.get("decision_type")) == "tool_call"
+        and current_tool_ref == OPERATION_TOOL_REFS["replace_in_file"]
+        and OPERATION_TOOL_REFS["preview_structured_edit"] in normalized_input.available_tool_refs
+    ):
+        tool_input = adjusted.get("suggested_tool_input")
+        if isinstance(tool_input, dict):
+            target_path = str(tool_input.get("path", "")).strip()
+            old_text = str(tool_input.get("old_text", ""))
+            expected_occurrences = tool_input.get("expected_occurrences")
+            preview = _matching_structured_edit_preview(
+                tool_context=tool_context,
+                path=target_path,
+                edit_kind="replace",
+                expected_occurrences=expected_occurrences if isinstance(expected_occurrences, int) else None,
+                old_text=old_text,
+            )
+            if preview is None:
+                adjusted["suggested_tool_ref"] = OPERATION_TOOL_REFS["preview_structured_edit"]
+                adjusted["suggested_tool_input"] = {
+                    "path": target_path,
+                    "edit_kind": "replace",
+                    "old_text": old_text,
+                    "expected_occurrences": expected_occurrences,
+                }
+                reasons.append("Structured replace now requires a preview step before mutation.")
+            elif not bool(preview.get("applicable")):
+                adjusted["decision_type"] = "respond"
+                adjusted["should_use_tools"] = False
+                adjusted["suggested_tool_ref"] = ""
+                adjusted["suggested_tool_input"] = {}
+                adjusted["next_step"] = "Explain why the structured replace is not safely applicable."
+                reasons.append("Structured replace preview reported the edit is not safely applicable.")
+    current_tool_ref = str(adjusted.get("suggested_tool_ref", "")).strip()
+    if (
+        str(adjusted.get("decision_type")) == "tool_call"
+        and current_tool_ref == OPERATION_TOOL_REFS["insert_in_file"]
+        and OPERATION_TOOL_REFS["preview_structured_edit"] in normalized_input.available_tool_refs
+    ):
+        tool_input = adjusted.get("suggested_tool_input")
+        if isinstance(tool_input, dict):
+            target_path = str(tool_input.get("path", "")).strip()
+            anchor_text = str(tool_input.get("anchor_text", ""))
+            position = str(tool_input.get("position", ""))
+            expected_occurrences = tool_input.get("expected_occurrences")
+            preview = _matching_structured_edit_preview(
+                tool_context=tool_context,
+                path=target_path,
+                edit_kind="insert",
+                expected_occurrences=expected_occurrences if isinstance(expected_occurrences, int) else None,
+                anchor_text=anchor_text,
+                position=position,
+            )
+            if preview is None:
+                adjusted["suggested_tool_ref"] = OPERATION_TOOL_REFS["preview_structured_edit"]
+                adjusted["suggested_tool_input"] = {
+                    "path": target_path,
+                    "edit_kind": "insert",
+                    "anchor_text": anchor_text,
+                    "position": position,
+                    "expected_occurrences": expected_occurrences,
+                }
+                reasons.append("Anchored insert now requires a preview step before mutation.")
+            elif not bool(preview.get("applicable")):
+                adjusted["decision_type"] = "respond"
+                adjusted["should_use_tools"] = False
+                adjusted["suggested_tool_ref"] = ""
+                adjusted["suggested_tool_input"] = {}
+                adjusted["next_step"] = "Explain why the anchored insert is not safely applicable."
+                reasons.append("Anchored insert preview reported the edit is not safely applicable.")
     current_tool_ref = str(adjusted.get("suggested_tool_ref", "")).strip()
     if str(adjusted.get("decision_type")) == "tool_call" and current_tool_ref in _EDIT_TOOL_REFS:
         readiness = _edit_readiness_status(

@@ -34,6 +34,36 @@ export interface RegisteredSkillDto {
   trigger_kinds: string[];
   enabled: boolean;
   notes: string;
+  source_kind?: string;
+  source_path?: string;
+  prompt_file?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DiscoveredSkillDto {
+  skill_name: string;
+  name: string;
+  description: string;
+  source_kind: string;
+  source_path: string;
+  prompt_file: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface SkillDiscoverySourceDto {
+  source_ref?: string;
+  source_kind: string;
+  root_path: string;
+  label: string;
+  enabled?: boolean;
+  notes?: string;
+}
+
+export interface SkillDiscoveryConflictDto {
+  conflict_kind: string;
+  skill_name: string;
+  sources: string[];
+  message: string;
 }
 
 export interface AgentWorkspaceDto {
@@ -77,6 +107,7 @@ export interface AgentResourceManagerSnapshotDto {
     workspace_root: WorkspaceRootConfigDto;
     mcp_servers: RegisteredMCPServerDto[];
     skills: RegisteredSkillDto[];
+    skill_sources: SkillDiscoverySourceDto[];
     agent_workspaces: AgentWorkspaceDto[];
   };
   agents: AgentResourceManagerAgentDto[];
@@ -93,6 +124,11 @@ export interface AgentResourceManagerSnapshotDto {
   catalog: {
     mcp_server_refs: string[];
     skill_names: string[];
+  };
+  skill_discovery: {
+    sources: SkillDiscoverySourceDto[];
+    skills: DiscoveredSkillDto[];
+    conflicts: SkillDiscoveryConflictDto[];
   };
   workspace_root_resolved: string;
 }

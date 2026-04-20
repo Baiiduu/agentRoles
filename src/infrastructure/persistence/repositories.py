@@ -20,6 +20,7 @@ from core.resource_registry.models import (
     AgentWorkspaceRegistration,
     RegisteredMCPServer,
     RegisteredSkill,
+    RegisteredSkillSource,
     ResourceRegistry,
     WorkspaceRootConfig,
 )
@@ -190,8 +191,23 @@ class SQLiteResourceRegistryRepository(FileResourceRegistryRepository):
                     trigger_kinds=[str(ref) for ref in (item.get("trigger_kinds") or [])],
                     enabled=bool(item.get("enabled", True)),
                     notes=str(item.get("notes", "")),
+                    source_kind=str(item.get("source_kind", "manual")),
+                    source_path=str(item.get("source_path", "")),
+                    prompt_file=str(item.get("prompt_file", "")),
+                    metadata=dict(item.get("metadata") or {}),
                 )
                 for item in payload.get("skills", [])
+            ],
+            skill_sources=[
+                RegisteredSkillSource(
+                    source_ref=str(item.get("source_ref", "")),
+                    source_kind=str(item.get("source_kind", "custom")),
+                    root_path=str(item.get("root_path", "")),
+                    label=str(item.get("label", "")),
+                    enabled=bool(item.get("enabled", True)),
+                    notes=str(item.get("notes", "")),
+                )
+                for item in payload.get("skill_sources", [])
             ],
             agent_workspaces=[
                 AgentWorkspaceRegistration(
@@ -209,6 +225,7 @@ class SQLiteResourceRegistryRepository(FileResourceRegistryRepository):
             "workspace_root": asdict(registry.workspace_root),
             "mcp_servers": [asdict(item) for item in registry.mcp_servers],
             "skills": [asdict(item) for item in registry.skills],
+            "skill_sources": [asdict(item) for item in registry.skill_sources],
             "agent_workspaces": [asdict(item) for item in registry.agent_workspaces],
         }
         self._write_payload(payload)
@@ -241,6 +258,7 @@ class SQLiteResourceRegistryRepository(FileResourceRegistryRepository):
             },
             "mcp_servers": [],
             "skills": [],
+            "skill_sources": [],
             "agent_workspaces": [],
         }
 
